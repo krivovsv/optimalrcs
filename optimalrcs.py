@@ -66,64 +66,21 @@ class CommittorNE:
         self.future_boundary = boundaries.FutureBoundary(self.r_traj, self.b_traj, self.t_traj, self.i_traj)
         self.past_boundary = boundaries.PastBoundary(self.r_traj, self.b_traj, self.t_traj, self.i_traj)
         self.metrics_history = {}
-        self.metric2function = {'delta_r2': self.metric_delta_r2, 'max_delta_zq': self.metric_max_delta_zq,
-                                'mse': self.metric_mse, 'mse_eq': self.metric_mse_eq, 'iter': self.metric_iter,
-                                'cross_entropy': self.metric_cross_entropy, 'time_elapsed': self.metric_time_elapsed,
-                                'delta_x': self.metric_delta_x, 'auc': self.metric_auc,
-                                'max_sd_zq': self.metric_max_sd_zq}
-        self.metrics_short_name = {'delta_r2': 'dr2', 'max_delta_zq': 'maxdzq', 'mse': 'mse', 'mse_eq': 'mseeq',
-                                   'cross_entropy': 'xent', 'time_elapsed': 'time', 'delta_x': 'dx',
-                                   'iter': '#', 'auc': 'auc', 'max_sd_zq': 'sdzq'}
         self.iter = 0
         self.p2i0 = None
         self.w_traj = None
 
-    def metric_delta_r2(self):
-        return metrics.delta_r2(self.r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, dt=1)
-
-    def metric_max_delta_zq(self):
-        return metrics.comp_max_delta_zq(self.r_traj, self.b_traj, self.i_traj, self.future_boundary,
-                                         self.past_boundary)[0]
-
-    def metric_max_sd_zq(self):
-        return metrics.comp_max_delta_zq(self.r_traj, self.b_traj, self.i_traj, self.future_boundary,
-                                         self.past_boundary)[2]
-
-    def metric_mse(self):
-        return metrics.mse(self.r_traj, self.b_traj, self.i_traj, self.future_boundary)
-
-    def metric_mse_eq(self):
-        return metrics.mse_eq(self.r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary)
-
-    def metric_cross_entropy(self):
-        return metrics.cross_entropy(self.r_traj, self.b_traj, self.i_traj, self.future_boundary)
-
-    def metric_auc(self):
-        return metrics.auc(self.r_traj, future_boundary=self.future_boundary)
-
-    def metric_low_bound_delta_r2_eq(self):
-        return metrics.low_bound_delta_r2_eq(self.r_traj, self.b_traj, self.i_traj, self.future_boundary)
-
-    def metric_time_elapsed(self):
-        return time.time()-self.time_start
-
-    def metric_delta_x(self):
-        return metrics.delta_x(self.r_traj, self.r_traj_old)
-
-    def metric_iter(self):
-        return self.iter
-
     def print_metrics(self, metrics_print):
         s = ''
         for metric in metrics_print:
-            s += '%s=%g, ' % (self.metrics_short_name[metric], self.metrics_history[metric][-1])
+            s += '%s=%g, ' % (metrics.metrics_short_name[metric], self.metrics_history[metric][-1])
         print(s[:-2])
 
     def compute_metrics(self, metrics_print):
         for metric in metrics_print:
             if metric not in self.metrics_history:
                 self.metrics_history[metric] = []
-            self.metrics_history[metric].append(self.metric2function[metric]())
+            self.metrics_history[metric].append(metrics.metric2function[metric](self))
 
     def fit_transform(self, comp_y,
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
@@ -150,31 +107,10 @@ class CommittorNE:
 
             # compute the basis functions
             if history_delta_t is None:
-                fk = basis_functions(self.r_traj, y, ny, _envelope)  # compute basis functions
+                y1, y2 = self.r_traj, y
             else:
-                d = np.random.choice(history_delta_t)
-                if d > 0:
-                    if history_type is None:
-                        history_type = 'y(t-d),r(t-d)'
-                    if history_type == 'y(t-d),r(t-d)' and history_shift_type is None:
-                        if self.i_traj is not None:
-                            it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                        else:
-                            it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len-d], dtype=tf.bool)], 0)
-                        y1 = tf.where(it, tf.roll(y, d, 0), 0)
-                        y2 = tf.where(it, tf.roll(self.r_traj, d, 0), 0)
-                    elif history_type == 'y(t-d),y(t)' and history_shift_type is None:
-                        if self.i_traj is not None:
-                            it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                        else:
-                            it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len-d], dtype=tf.bool)], 0)
-                        y1 = tf.where(it, tf.roll(y, d, 0), 0)
-                        y2 = y
-                    else:
-                        y1, y2 = self._history_select_y(y, d, history_type, history_shift_type)
-                    fk = basis_functions(y1, y2, ny, _envelope)
-                else:
-                    fk = basis_functions(self.r_traj, y, ny, _envelope)
+                y1, y2 = self.history_select_y1y2(y, history_delta_t, history_type, history_shift_type)
+            fk = basis_functions(y1, y2, ny, _envelope)
 
             # compute the gamma parameter
             if callable(gamma):
@@ -198,19 +134,37 @@ class CommittorNE:
                     if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
                         break
 
+    def history_select_y1y2(self, y, history_delta_t, history_type, history_shift_type):
+        d = np.random.choice(history_delta_t)
+        if d > 0:
+            if history_type is None:
+                history_type = 'y(t-d),r(t-d)'
+            if history_type == 'y(t-d),r(t-d)' and history_shift_type is None:
+                if self.i_traj is not None:
+                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
+                else:
+                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
+                y1 = tf.where(it, tf.roll(y, d, 0), 0)
+                y2 = tf.where(it, tf.roll(self.r_traj, d, 0), 0)
+            elif history_type == 'y(t-d),y(t)' and history_shift_type is None:
+                if self.i_traj is not None:
+                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
+                else:
+                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
+                y1 = tf.where(it, tf.roll(y, d, 0), 0)
+                y2 = y
+            else:
+                y1, y2 = self._history_select_y(y, d, history_type, history_shift_type)
+        else:
+            y1, y2 = self.r_traj, y
+        return y1, y2
+
     def _history_select_y(self, y, d, history_type, history_shift_type):
         if history_shift_type is None:
             history_shift_type = '0'
         if history_type is None:
             history_type = 'y(t-d),r(t-d)'
         if history_shift_type == 'r(t0)' and self.p2i0 is None:
-            #self.p2i0 = np.zeros_like(self.i_traj)  # compute pointer to the first frame in the trajectoriy
-            #ilast = -1
-            #for i in range(len(self.i_traj)):
-            #    if self.i_traj[i] != ilast:
-            #        p = i
-            #        ilast = self.i_traj[i]
-            #    self.p2i0[i] = p
             i0=np.where(np.roll(self.i_traj,1)!=self.i_traj)[0]
             self.p2i0=i0[self.i_traj]
 

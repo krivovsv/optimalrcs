@@ -124,25 +124,25 @@ class TestDeltaR2(unittest.TestCase):  # compare dr2 computed from the profile a
         for dt in ldt:
             r_traj = np.asarray([0, 0.1, 0.2, 0.3])
             b_traj = np.asarray([1, 0, 0, 0])
-            val = metrics.delta_r2(r_traj, b_traj, dt=dt)/2
+            val = metrics._delta_r2(r_traj, b_traj, dt=dt) / 2
             lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt, nbins=100000)
             self.assertAlmostEqual(integrate(lx, lz).numpy(), val.numpy(), 4)
 
             r_traj = np.asarray([0.5, 0.6, 0.7, 1.0])
             b_traj = np.asarray([0, 0, 0, 1])
-            val = metrics.delta_r2(r_traj, b_traj, dt=dt) / 2
+            val = metrics._delta_r2(r_traj, b_traj, dt=dt) / 2
             lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt, nbins=100000)
             self.assertAlmostEqual(integrate(lx, lz).numpy(), val.numpy(), 4)
 
             r_traj = np.asarray([0., 0.2, 0.5, 0.7, 1.0])
             b_traj = np.asarray([1, 0, 0, 0, 1])
-            val = metrics.delta_r2(r_traj, b_traj, dt=dt) / 2
+            val = metrics._delta_r2(r_traj, b_traj, dt=dt) / 2
             lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt, nbins=100000)
             self.assertAlmostEqual(integrate(lx, lz).numpy(), val.numpy(), 4)
 
             r_traj = np.asarray([0., 0.5, 1.0, 0.7, 0.])
             b_traj = np.asarray([1, 0, 1, 0, 1])
-            val = metrics.delta_r2(r_traj, b_traj, dt=dt) / 2
+            val = metrics._delta_r2(r_traj, b_traj, dt=dt) / 2
             lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt, nbins=100000)
             self.assertAlmostEqual(integrate(lx, lz).numpy(), val.numpy(), 4)
 
@@ -151,7 +151,7 @@ class TestDeltaR2(unittest.TestCase):  # compare dr2 computed from the profile a
             np.random.seed(seed)
             r_traj, b_traj, i_traj = random_walks(10, 3)
             for dt in ldt:
-                val = metrics.delta_r2(r_traj, b_traj, i_traj=i_traj, dt=dt)/2
+                val = metrics._delta_r2(r_traj, b_traj, i_traj=i_traj, dt=dt) / 2
                 lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, i_traj=i_traj, dt=dt, nbins=100000)
                 self.assertAlmostEqual(integrate(lx, lz).numpy(), val.numpy(), 4)
 

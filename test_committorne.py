@@ -1,6 +1,7 @@
 import numpy as np
 import unittest
 import optimalrcs
+import metrics
 
 
 class TestCommittorNE(unittest.TestCase):
@@ -13,7 +14,7 @@ class TestCommittorNE(unittest.TestCase):
         r_traj = np.asarray(r_traj)
         f.close()
         q = optimalrcs.CommittorNE(boundary0=r_traj > 10.5, boundary1=r_traj < 1.0)
-        print(q.metric_low_bound_delta_r2_eq().numpy())
+        print(metrics.low_bound_delta_r2_eq(q).numpy())
 
         def comp_y():
             return r_traj
@@ -33,7 +34,7 @@ class TestCommittorNE(unittest.TestCase):
         r_traj = np.asarray(r_traj)
         f.close()
         q = optimalrcs.CommittorNE(boundary0=r_traj > 10.5, boundary1=r_traj < 1.0)
-        print(q.metric_low_bound_delta_r2_eq().numpy())
+        print(metrics.low_bound_delta_r2_eq(q).numpy())
 
         def comp_y():
             return r_traj
