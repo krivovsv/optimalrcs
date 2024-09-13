@@ -72,8 +72,8 @@ def npqsoft(r_traj, fk, ia_traj, ib_traj, lmbd_a, lmbd_b, i_traj=None, w_traj=No
 
 
 @tf.function
-def npmfpt(r_traj, fk, i_traj=None, w_traj=None):
-    """ implements NPmfpt (non-parametric mfpt optimization) iteration.
+def npt(r_traj, fk, i_traj=None, w_traj=None):
+    """ implements NPt (non-parametric mfpt optimization) iteration.
 
     r is the putative RC time-series
     fk are the basis functions of the variation delta r
@@ -236,3 +236,36 @@ def npnew(r, fk, it):
     rn = abs(rn)
 
     return rn
+
+@tf.function
+def npnet(r_traj, fk, t_traj, i_traj, gamma=0, tmax=1e10):
+    """ implements NPNEt (non-parametric non-equilibrium mfpt
+    optimization) iteration.
+    
+    r is the putative RC time-series
+    fk are the basis functions of the variation delta r
+    It is the trajectory indictor function:
+        It(i)=1 if X(i) and X(i+1) belong to the same short trajectory
+    """
+    if i_traj is None:
+        itw = tf.ones_like(r_traj[:-1])
+    else:
+        itw = tf.cast(i_traj[1:] == i_traj[:-1], dtype=r_traj.dtype)
+
+    dfj = fk[:, 1:] - fk[:,:-1] * (1+gamma)
+    
+
+    akj = tf.tensordot(fk[:, :-1], dfj * itw, axes=[1, 1])
+
+    delta_r = r_traj[1:] - r_traj[:-1] + t_traj[1:] - t_traj[:-1]
+
+    b = tf.tensordot(fk[:, :-1], -delta_r * itw, 1)
+    b = tf.reshape(b, [b.shape[0], 1])
+
+    al_j = tf.linalg.lstsq(akj, b, fast=False)
+    al_j = tf.reshape(al_j, [al_j.shape[0]])
+
+    rn = r_traj + tf.tensordot(al_j, fk, 1)
+    rn = tf.clip_by_value(rn, 0, tmax)
+    return rn
+

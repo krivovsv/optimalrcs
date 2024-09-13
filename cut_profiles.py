@@ -105,10 +105,18 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
 
 
 def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
-            future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000):
+            future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000, 
+            log_scale=False, log_scale_pmin=1e-4):
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
+    if log_scale:
+        if log_scale_pmin is None:
+            r_min = tf.math.reduce_min(tf.where(r_traj >0, r_traj, r_max))
+        else:
+            r_min = max(r_min, log_scale_pmin)
+        bin_edges = tf.exp(tf.linspace(np.log(r_min), np.log(r_max),
+                                       nbins + 1))  # linear in log space
     delta_t_prec = tf.cast(dt, dtype=r_traj.dtype)
 
     if i_traj is None:
@@ -148,6 +156,58 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
     zc1 = tf.cumsum(hist) / delta_t_prec
     return bin_edges, zc1
 
+def comp_zt(r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray, i_traj: np.ndarray = None,
+            future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000, 
+            log_scale=False, log_scale_tmin=1e-4):
+    r_min = tf.math.reduce_min(r_traj)
+    r_max = tf.math.reduce_max(r_traj)
+    bin_edges = tf.linspace(r_min, r_max, nbins + 1)
+    if log_scale:
+        if log_scale_tmin is None:
+            r_min = tf.math.reduce_min(tf.where(r_traj >0, r_traj, r_max))
+        else:
+            r_min = max(r_min, log_scale_tmin)
+        bin_edges = tf.exp(tf.linspace(np.log(r_min), np.log(r_max),
+                                       nbins + 1))  # linear in log space
+    delta_t_prec = tf.cast(dt, dtype=r_traj.dtype)
+
+    if i_traj is None:
+        i_traj = tf.ones_like(r_traj)
+    if future_boundary is None:
+        future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
+    if past_boundary is None:
+        past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
+
+    i_future_boundary_crossed = (tf.cast(future_boundary.index2 > -1, dtype=r_traj.dtype) *
+                                 tf.cast(future_boundary.delta_i2 <= delta_t_prec, dtype=r_traj.dtype))
+    i_past_boundary_crossed = (tf.cast(past_boundary.index2 > -1, dtype=r_traj.dtype) *
+                               tf.cast(past_boundary.delta_i2 >= -delta_t_prec, dtype=r_traj.dtype))
+
+    # no crossings of boundaries
+    delta_r = ((1 - i_future_boundary_crossed[:-dt]) * (1 - i_past_boundary_crossed[dt:]) * 
+                (r_traj[dt:] - r_traj[:-dt] + t_traj[dt:]-t_traj[:-dt]) *
+                tf.cast(i_traj[dt:] == i_traj[:-dt], dtype=r_traj.dtype))
+    bin_indices = tf.searchsorted(bin_edges, r_traj, side='right') - 1
+    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins + 1, weights=delta_r)
+
+    # crossing of the future boundary
+    delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj + future_boundary.delta_t2)
+    delta_r = delta_r * tf.cast(future_boundary.delta_i_to_end >= delta_t_prec, dtype=r_traj.dtype)
+    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+
+    # transitions between the boundaries
+    delta_r01 = (i_future_boundary_crossed * b_traj * (delta_t_prec - future_boundary.delta_i2 + 1) *
+                 (future_boundary.r2 - r_traj + future_boundary.delta_t2))
+    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r01)
+
+    # crossing of the past boundary
+    delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2-past_boundary.delta_t2)
+    delta_r = delta_r * tf.cast(past_boundary.delta_i_from_start >= delta_t_prec, dtype=r_traj.dtype)
+    bin_indices = tf.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
+    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+
+    zc1 = tf.cumsum(hist) / delta_t_prec
+    return bin_edges, zc1
 
 def comp_zca(r_traj, a, i_traj=None, w_traj=None, t_traj=None, nbins=1000, eps=1e-3, dt=1):
     """ computes $Z_{C,a}$ cut profile

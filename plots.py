@@ -54,6 +54,28 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
 
+def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$mfpt$',
+            ln=False):
+    if ldt is None:
+        ldt = ldt0
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+    if future_boundary is None:
+        future_boundary = bd.FutureBoundary(r_traj, b_traj, t_traj=t_traj, i_traj=i_traj)
+    if past_boundary is None:
+        past_boundary = bd.PastBoundary(r_traj, b_traj, t_traj=t_traj, i_traj=i_traj)
+
+    for dt in ldt:
+        lx, ly = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        if ln:
+            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
+            ylabel = '$-\ln Z_t$'
+        else:
+            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ylabel = '$Z_t$'
+    ax.set(ylabel=ylabel, xlabel=xlabel)
+    ax.grid()
+
 
 def plot_fep(ax, r_traj, i_traj=None, t_traj=None, w_traj=None, xlabel='$q$', natural=False, dt_sim=1, lt='r-'):
     if natural:
@@ -89,7 +111,7 @@ def transform_q2qn(r_traj, i_traj=None, t_traj=None, w_traj=None, nbins=10000, d
     return r2s(r_traj) * dt_sim ** 0.5
 
 
-def plot_obs_pred(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=None, log_scale=False, log_scale_pmin=None):
+def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=None, log_scale=False, log_scale_pmin=None):
     if tf.is_tensor(r_traj):
         r_traj = r_traj.numpy()
     r_min = tf.math.reduce_min(r_traj)
@@ -136,6 +158,58 @@ def plot_obs_pred(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=None,
     ax.grid()
     if ax2 is not None:
         ax2.set(xlabel='pB predicted', ylabel='#', yscale='log')
+        #ax2.set_yscale('log')
+        ax2.legend()
+        ax2.grid()
+        if log_scale:
+            ax2.set(xscale='log', yscale='log')
+
+def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=None, log_scale=False, log_scale_tmin=None):
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+    r_min = tf.math.reduce_min(r_traj)
+    r_max = tf.math.reduce_max(r_traj)
+    bin_edges = tf.linspace(r_min, r_max, nbins + 1)
+    if log_scale:
+        if log_scale_tmin is None:
+            r_min = tf.math.reduce_min(tf.where(r_traj >0, r_traj, r_max))
+        else:
+            r_min = max(r_min, log_scale_tmin)
+        bin_edges = tf.exp(tf.linspace(np.log(r_min), np.log(r_max),
+                                       nbins + 1))  # linear in log space
+
+    zero = tf.cast(0, dtype=r_traj.dtype)
+    one = tf.cast(1, dtype=r_traj.dtype)
+
+    def obs_pred(istart, iend, line_type, label, ax, ax2=None):
+
+        ta = tf.where(future_boundary.index[istart:iend] > -1, future_boundary.delta_t[istart:iend], zero)
+        na = tf.where(future_boundary.index[istart:iend] > -1, one, zero)
+        nd = tf.where(future_boundary.index[istart:iend] > -1, zero, one)
+        bin_indices = tf.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        hist_ta = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=ta)
+        hist_na = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=na)
+        hist_nd = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nd)
+        hist_ta = hist_ta / hist_na
+        lx = (bin_edges[:-1] + bin_edges[1:]) / 2
+        if log_scale:
+            lx = (bin_edges[:-1] * bin_edges[1:]) ** 0.5
+        ax.plot(lx, hist_ta[:-1], line_type, label=label)
+        if ax2 is not None:
+            ax2.plot(lx, hist_na[:-1], 'r-', label='nA' )
+            ax2.plot(lx, hist_nd[:-1], 'k-', label='n discarded' )
+    obs_pred(0, -1, '-r', 'obs vs pred', ax, ax2)
+    if halves:
+        obs_pred(0, len(r_traj)//2, ':g', 'obs vs pred 1/2', ax)
+        obs_pred(len(r_traj)//2, -1, ':b', 'obs vs pred 2/2', ax)
+    ax.plot((r_min, r_max), (r_min, r_max), ':k', label='obs = pred')
+    ax.set(xlabel='mfpt predicted', ylabel='mfpt observed')
+    if log_scale:
+        ax.set(xscale='log', yscale='log')
+    ax.legend()
+    ax.grid()
+    if ax2 is not None:
+        ax2.set(xlabel='mfpt predicted', ylabel='#', yscale='log')
         #ax2.set_yscale('log')
         ax2.legend()
         ax2.grid()
