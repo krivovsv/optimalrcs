@@ -26,7 +26,7 @@ class TestMFPTNE(unittest.TestCase):
         mfpt.plots_feps()
         mfpt.plots_obs_pred()
         
-    def _test_2f4k(self):
+    def test_2f4k(self):
         f = open('2f4k.CArmsd', 'r')
         r_traj = []
         for line in f:
@@ -35,7 +35,7 @@ class TestMFPTNE(unittest.TestCase):
         f.close()
         
         mfpt = optimalrcs.MFPTNE(boundary0=r_traj < 1.0)
-        #print(metrics.low_bound_delta_r2_eq(q).numpy())
+        print(metrics.low_bound_i_mfpt_eq(mfpt))
 
         def comp_y():
             return r_traj
@@ -52,8 +52,8 @@ class TestMFPTNE(unittest.TestCase):
         mfpt.plots_feps()
         #q.plots_feps(delta_t_sim=1, reweight=True)
         mfpt.plots_obs_pred()
-        #q.plots_feps(r_traj=q.r_traj_min_sd_zq)
-        #q.plots_obs_pred(r_traj=q.r_traj_min_sd_zq)
+        #q.plots_feps(r_traj=q.r_traj_min_sd_zt)
+        #q.plots_obs_pred(r_traj=q.r_traj_min_sd_zt)
 
 
 if __name__ == '__main__':
