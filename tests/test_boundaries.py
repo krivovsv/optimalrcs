@@ -1,5 +1,5 @@
 import unittest
-import boundaries
+import optimalrcs.boundaries as boundaries
 import numpy as np
 import numpy.testing as npt
 

@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow as tf
-import boundaries
-import metrics
-import nonparametrics
+import optimalrcs.boundaries as boundaries
+import optimalrcs.metrics as metrics
+import optimalrcs.nonparametrics as nonparametrics
 import time
-import plots
+import optimalrcs.plots as plots
 import matplotlib.pyplot as plt
 
 

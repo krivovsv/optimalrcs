@@ -1,5 +1,5 @@
-import cut_profiles, metrics
-import boundaries as bd
+import optimalrcs.cut_profiles as cut_profiles, optimalrcs.metrics as metrics
+import optimalrcs.boundaries as bd
 import tensorflow as tf
 import numpy as np
 

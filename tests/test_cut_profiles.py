@@ -1,9 +1,9 @@
 import unittest
-import boundaries as bd
+import optimalrcs.boundaries as bd
 import numpy as np
 import numpy.testing as npt
-import cut_profiles
-import metrics
+import optimalrcs.cut_profiles as cut_profiles
+import optimalrcs.metrics as metrics
 import tensorflow as tf
 
 

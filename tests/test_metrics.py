@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-import metrics
+import optimalrcs.metrics as metrics
 
 
 class TestDeltaR2(unittest.TestCase):
@@ -87,7 +87,7 @@ class TestDeltaR2(unittest.TestCase):
 class TestMetrics(unittest.TestCase):
     def test_2f4k(self):
         import pickle
-        f = open('q-SOTA.pkl', 'rb')
+        f = open('data/q-SOTA.pkl', 'rb')
         r_traj = pickle.load(f)
         f.close()
         b_traj = np.where(np.logical_or(r_traj == 1, r_traj == 0), 1, 0)

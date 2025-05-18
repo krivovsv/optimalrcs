@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-import boundaries as bd
+import optimalrcs.boundaries as bd
 
 def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,

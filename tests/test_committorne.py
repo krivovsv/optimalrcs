@@ -1,13 +1,13 @@
 import numpy as np
 import unittest
-import optimalrcs
-import metrics
+import optimalrcs.optimalrcs as optimalrcs
+import optimalrcs.metrics as metrics
 
 
 class TestCommittorNE(unittest.TestCase):
 
     def test_2f4k_history(self):
-        f = open('2f4k.CArmsd', 'r')
+        f = open('data/2f4k.CArmsd', 'r')
         r_traj = []
         for line in f:
             r_traj.append(float(line.split()[-1]))
@@ -27,7 +27,7 @@ class TestCommittorNE(unittest.TestCase):
         q.plots_obs_pred(r_traj=q.r_traj_min_sd_zq)
 
     def test_2f4k(self):
-        f = open('2f4k.CArmsd', 'r')
+        f = open('data/2f4k.CArmsd', 'r')
         r_traj = []
         for line in f:
             r_traj.append(float(line.split()[-1]))

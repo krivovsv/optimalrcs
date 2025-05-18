@@ -1,6 +1,6 @@
 import tensorflow as tf
-import boundaries as bd
-import cut_profiles
+import optimalrcs.boundaries as bd
+import optimalrcs.cut_profiles as cut_profiles
 import numpy as np
 import time
 
