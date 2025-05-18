@@ -3,3 +3,4 @@
 /workspace.xml
 *.pyc
 __pycache__/
+optimalrcs/__pycache__/
