@@ -1,30 +1,30 @@
-import tensorflow as tf
-import optimalrcs.boundaries as bd
-import optimalrcs.cut_profiles as cut_profiles
+import cupy as cp
+import boundaries as bd
+import cut_profiles
 import numpy as np
 import time
 
 
 def _delta_r2_eq_dt1(r_traj):
-    return tf.reduce_sum(tf.square(r_traj[1:] - r_traj[:-1]))
+    return cp.sum(cp.square(r_traj[1:] - r_traj[:-1])).get()
 
 
 def _delta_r2_eq_nobd(r_traj, dt=1):
-    if dt >= len(r_traj): return tf.constant(0,r_traj.dtype)
-    return tf.reduce_sum(tf.square(r_traj[dt:] - r_traj[:-dt])) / dt
+    if dt >= len(r_traj): return 0
+    return cp.sum(cp.square(r_traj[dt:] - r_traj[:-dt])).get() / dt
 
 
 def _delta_r2_ne_dt1(r_traj, i_traj):
-    delta_r = tf.where(i_traj[1:] == i_traj[:-1], r_traj[1:] - r_traj[:-1], tf.cast(0, dtype=r_traj.dtype))
-    return tf.reduce_sum(tf.square(delta_r))
+    delta_r = cp.where(i_traj[1:] == i_traj[:-1], r_traj[1:] - r_traj[:-1], 0)
+    return cp.sum(cp.square(delta_r)).get()
 
 
 def _delta_r2_ne_nobd(r_traj, i_traj, dt=1):
-    delta_r = tf.where(i_traj[dt:] == i_traj[:-dt], r_traj[dt:] - r_traj[:-dt], tf.cast(0, dtype=r_traj.dtype))
-    return tf.reduce_sum(tf.square(delta_r)) / dt
+    delta_r = cp.where(i_traj[dt:] == i_traj[:-dt], r_traj[dt:] - r_traj[:-dt], 0)
+    return cp.sum(cp.square(delta_r)).get() / dt
 
 def _delta_r2_slow_exact(r_traj, b_traj, i_traj, dt=1):
-    trajs, indices = tf.unique(i_traj)
+    trajs, indices = cp.unique(i_traj)
     s=0
     for i in trajs:
         mask=i_traj==i
@@ -38,40 +38,39 @@ def _delta_r2(r_traj, b_traj=None, i_traj=None, future_boundary=None, past_bound
         else:
             return _delta_r2_ne_dt1(r_traj, i_traj)
     if dt > 1 and (b_traj is None) and (future_boundary is None) and (past_boundary is None):
-        b_traj = tf.zeros_like(r_traj)
+        b_traj = cp.zeros_like(r_traj)
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
-    delta_t = tf.cast(dt, dtype=r_traj.dtype)
-    i_future_boundary_crossed = (tf.cast(future_boundary.index2 > -1, dtype=r_traj.dtype) *
-                                 tf.cast(future_boundary.delta_t2 <= delta_t, dtype=r_traj.dtype))
-    i_past_boundary_crossed = (tf.cast(past_boundary.index2 > -1, dtype=r_traj.dtype) *
-                               tf.cast(past_boundary.delta_t2 >= -delta_t, dtype=r_traj.dtype))
+    i_future_boundary_crossed = ((future_boundary.index2 > -1).astype(r_traj.dtype) *
+                                 (future_boundary.delta_t2 <= dt).astype(r_traj.dtype))
+    i_past_boundary_crossed = ((past_boundary.index2 > -1).astype(r_traj.dtype) *
+                               (past_boundary.delta_t2 >= -dt).astype(r_traj.dtype))
 
     # no crossing of boundaries
     if i_traj is None:
-        loss = tf.reduce_sum((1 - i_past_boundary_crossed[dt:]) * (1 - i_future_boundary_crossed[:-dt]) *
-                             tf.square(r_traj[dt:] - r_traj[:-dt]))
+        loss = cp.sum((1 - i_past_boundary_crossed[dt:]) * (1 - i_future_boundary_crossed[:-dt]) *
+                             cp.square(r_traj[dt:] - r_traj[:-dt]))
     else:
-        loss = tf.reduce_sum((1 - i_past_boundary_crossed[dt:]) * (1 - i_future_boundary_crossed[:-dt]) *
-                             tf.square(r_traj[dt:] - r_traj[:-dt]) *
-                             tf.cast(i_traj[dt:] == i_traj[:-dt], dtype=r_traj.dtype))
+        loss = cp.sum((1 - i_past_boundary_crossed[dt:]) * (1 - i_future_boundary_crossed[:-dt]) *
+                             cp.square(r_traj[dt:] - r_traj[:-dt]) *
+                             (i_traj[dt:] == i_traj[:-dt]).astype(r_traj.dtype))
 
     # crossing of the future boundary
-    loss += tf.reduce_sum(i_future_boundary_crossed * (1 - b_traj) * tf.square(future_boundary.r2 - r_traj) *
-                          tf.cast(future_boundary.delta_i_to_end >= delta_t, dtype=r_traj.dtype))
+    loss += cp.sum(i_future_boundary_crossed * (1 - b_traj) * cp.square(future_boundary.r2 - r_traj) *
+                          (future_boundary.delta_i_to_end >= dt).astype(r_traj.dtype))
 
     # crossing of the past boundary
-    loss += tf.reduce_sum(i_past_boundary_crossed * (1 - b_traj) * tf.square(r_traj - past_boundary.r2) *
-                          tf.cast(past_boundary.delta_i_from_start >= delta_t, dtype=r_traj.dtype))
+    loss += cp.sum(i_past_boundary_crossed * (1 - b_traj) * cp.square(r_traj - past_boundary.r2) *
+                          (past_boundary.delta_i_from_start >= dt).astype(r_traj.dtype))
 
     # transitions between boundaries
-    loss += tf.reduce_sum(i_future_boundary_crossed * b_traj * (delta_t - future_boundary.delta_t2 + 1) *
-                          tf.square(future_boundary.r2 - r_traj))# *
+    loss += cp.sum(i_future_boundary_crossed * b_traj * (dt - future_boundary.delta_t2 + 1) *
+                          cp.square(future_boundary.r2 - r_traj))# *
 
-    return loss / dt
+    return loss.get() / dt
 
 
 ldt0 = [2 ** i for i in range(16)]
@@ -80,8 +79,8 @@ ldt0 = [2 ** i for i in range(16)]
 def _comp_max_delta_zq(r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, ldt=None):
     if ldt is None:
         ldt = ldt0
-    if tf.is_tensor(r_traj):
-        r_traj = r_traj.numpy()
+    #if cp.is_tensor(r_traj):
+    #    r_traj = r_traj.get()
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
@@ -91,8 +90,8 @@ def _comp_max_delta_zq(r_traj, b_traj=None, i_traj=None, future_boundary=None, p
     max_abs = 0, 0
     total_m2 = 0
     for dt in ldt:
-        lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
-        lz = lz[:-1].numpy()
+        lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=dt)
+        lz = lz[:-1].get()
         m1 = np.mean(lz)
         mabs = np.max(abs(lz - m1))
         if mabs > max_abs[0]:
@@ -107,8 +106,8 @@ def _comp_max_grad_zq(r_traj, b_traj=None, i_traj=None, future_boundary=None, pa
                       log_scale=False, log_scale_pmin=1e-4):
     if ldt is None:
         ldt = ldt0
-    if tf.is_tensor(r_traj):
-        r_traj = r_traj.numpy()
+    #if cp.is_tensor(r_traj):
+    #    r_traj = r_traj.get()
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
@@ -116,10 +115,10 @@ def _comp_max_grad_zq(r_traj, b_traj=None, i_traj=None, future_boundary=None, pa
 
     stats = 0, 0
     for dt in ldt:
-        lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt), 
+        lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=dt, 
                                       log_scale=log_scale, log_scale_pmin=log_scale_pmin)
-        lz = lz[:-1].numpy()
-        lx = lx[:-1].numpy()
+        lz = lz[:-1].get()
+        lx = lx[:-1].get()
         avgrad = np.mean((lz[d:] - lz[:-d]) ** 2/(lx[d:]-lx[:-d])) ** 0.5
         if avgrad > stats[0]: stats = avgrad, dt
     return stats
@@ -127,8 +126,6 @@ def _comp_max_grad_zq(r_traj, b_traj=None, i_traj=None, future_boundary=None, pa
 def _comp_max_delta_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None):
     if ldt is None:
         ldt = ldt0
-    if tf.is_tensor(r_traj):
-        r_traj = r_traj.numpy()
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, t_traj=t_traj, i_traj=i_traj)
     if past_boundary is None:
@@ -137,8 +134,8 @@ def _comp_max_delta_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None
     max_m2 = 0, 0
     max_abs = 0, 0
     for dt in ldt:
-        lx, lz = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
-        lz = lz[:-1].numpy()
+        lx, lz = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=dt)
+        lz = lz[:-1].get()
         m1 = np.mean(lz)
         mabs = np.max(abs(lz - m1))
         if mabs > max_abs[0]:
@@ -152,8 +149,6 @@ def _comp_max_grad_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None,
                       log_scale=False, log_scale_tmin=1e-4):
     if ldt is None:
         ldt = ldt0
-    if tf.is_tensor(r_traj):
-        r_traj = r_traj.numpy()
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
@@ -161,10 +156,10 @@ def _comp_max_grad_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None,
 
     stats = 0, 0
     for dt in ldt:
-        lx, lz = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt), 
+        lx, lz = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=dt, 
                                       log_scale=log_scale, log_scale_tmin=log_scale_tmin)
-        lz = lz[:-1].numpy()
-        lx = lx[:-1].numpy()
+        lz = lz[:-1].get()
+        lx = lx[:-1].get()
         avgrad = np.mean((lz[d:] - lz[:-d]) ** 2/(lx[d:]-lx[:-d])) ** 0.5
         if avgrad > stats[0]: stats = avgrad, dt
     return stats
@@ -173,7 +168,7 @@ def _comp_max_grad_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None,
 def _mse(r_traj, b_traj=None, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
-    return tf.math.reduce_mean(tf.boolean_mask(future_boundary.r-r_traj, future_boundary.index > -1)**2)
+    return cp.mean(cp.where(future_boundary.index > -1, future_boundary.r-r_traj, 0)**2)
 
 
 
@@ -182,46 +177,46 @@ def _mse_eq(r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundar
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
-    return (tf.math.reduce_mean(tf.boolean_mask(future_boundary.r - r_traj, future_boundary.index > -1)**2) +
-            tf.math.reduce_mean(tf.boolean_mask(r_traj-past_boundary.r, past_boundary.index > -1) ** 2))/2
+    return (cp.mean(cp.where(future_boundary.index > -1, future_boundary.r - r_traj, 0)**2) +
+            cp.mean(cp.where(past_boundary.index > -1, r_traj-past_boundary.r, 0) ** 2))/2
 
 
 def _cross_entropy(r_traj, b_traj=None, i_traj=None, future_boundary=None, eps=1e-6):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
-    return -tf.math.reduce_mean(tf.boolean_mask(future_boundary.r*tf.math.log(r_traj+eps)+
-                                                (1-future_boundary.r)*tf.math.log(1-r_traj+eps), future_boundary.index > -1))
+    return -cp.mean(cp.where(future_boundary.index > -1,
+                               future_boundary.r*cp.log(r_traj+eps)+(1-future_boundary.r)*cp.log(1-r_traj+eps), 0))
 
 def _auc(r_traj, b_traj=None, i_traj=None, future_boundary=None, skip_boundaries=False):
     import sklearn.metrics
-    if tf.is_tensor(r_traj):
-        r_traj = r_traj.numpy()
+    #if cp.is_tensor(r_traj):
+    #    r_traj = r_traj.get()
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
 
     ok = future_boundary.index > -1
     if skip_boundaries: ok = ok & b_traj==0 
-    return sklearn.metrics.roc_auc_score(future_boundary.r[ok], r_traj[ok])
+    return sklearn.metrics.roc_auc_score(future_boundary.r[ok].get(), r_traj[ok].get())
 
 def _delta_x(r1_traj, r2_traj):
-    return tf.math.reduce_mean((r1_traj-r2_traj) ** 2) ** 0.5
+    return cp.mean((r1_traj-r2_traj) ** 2) ** 0.5
 
 
 def _low_bound_delta_r2_eq(r_traj, b_traj, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
-    return tf.reduce_sum(tf.where(future_boundary.index[1:] > -1,
+    return cp.reduce_sum(cp.where(future_boundary.index[1:] > -1,
                                   (future_boundary.r[1:] - future_boundary.r[:-1]) ** 2, 0))
 
 
 def _imfpt_eq(r_traj, dt=1):
-    return tf.math.reduce_sum(tf.square(r_traj[dt:] - r_traj[:-dt]) - 2 * dt * (r_traj[:-dt] + r_traj[dt:]))
+    return cp.sum(cp.square(r_traj[dt:] - r_traj[:-dt]) - 2 * dt * (r_traj[:-dt] + r_traj[dt:]))
 
 
 def _min_imfpt_eq(b_traj, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(b_traj, b_traj, i_traj=i_traj)
-    return tf.reduce_sum(tf.where(future_boundary.index > -1, b_traj * (future_boundary.delta_t + 1) ** 2, 0))
+    return cp.reduce_sum(cp.where(future_boundary.index > -1, b_traj * (future_boundary.delta_t + 1) ** 2, 0))
 
 
 def delta_r2(rc):
@@ -270,16 +265,18 @@ def iter(rc):
     return rc.iter
 
 def i_mfpt(rc):
-    dti=(tf.square(rc.r_traj[1:] - rc.r_traj[:-1]) - 2 *
+    dti=(cp.square(rc.r_traj[1:] - rc.r_traj[:-1]) - 2 *
                                     (rc.t_traj[1:] - rc.t_traj[:-1]) * (rc.r_traj[:-1] + rc.r_traj[1:]))
     if rc.i_traj is not None:
-        dti=dti*tf.cast(rc.i_traj[1:]==rc.i_traj[:-1],rc.prec)
-    return tf.math.reduce_mean(dti).numpy()
+        dti=dti*(rc.i_traj[1:]==rc.i_traj[:-1]).astype(rc.prec)
+    return cp.mean(dti).get()
     
 def low_bound_i_mfpt_eq(rc):
     dti = rc.future_boundary.delta_t[1:][rc.b_traj[:-1] > 0][:-1] + 1
     return -sum(dti**2) / len(rc.b_traj)
 
+def max_rc(rc):
+    return cp.max(rc.r_traj)
 
 
 
@@ -288,8 +285,9 @@ metric2function = {'delta_r2': delta_r2, 'max_delta_zq': max_delta_zq,
                         'cross_entropy': cross_entropy, 'time_elapsed': time_elapsed,
                         'delta_x': delta_x, 'auc': auc, 'imfpt': i_mfpt,
                         'max_sd_zq': max_sd_zq, 'max_grad_zq': max_grad_zq,
-                        'max_sd_zt': max_sd_zt, 'max_grad_zt': max_grad_zt}
+                        'max_sd_zt': max_sd_zt, 'max_grad_zt': max_grad_zt, 'max_rc': max_rc}
+
 metrics_short_name = {'delta_r2': 'dr2', 'max_delta_zq': 'maxdzq', 'mse': 'mse', 'mse_eq': 'mseeq',
                            'cross_entropy': 'xent', 'time_elapsed': 'time', 'delta_x': '|dx|',
                            'iter': '#', 'auc': 'auc', 'max_sd_zq': 'sdzq', 'max_grad_zq': 'dzq',
-                           'max_sd_zt': 'sdzt', 'max_grad_zt': 'dzt', 'imfpt': 'it'}
+                           'max_sd_zt': 'sdzt', 'max_grad_zt': 'dzt', 'imfpt': 'it', 'max_rc': 'max'}

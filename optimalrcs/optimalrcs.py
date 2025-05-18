@@ -1,27 +1,28 @@
 import numpy as np
-import tensorflow as tf
-import optimalrcs.boundaries as boundaries
-import optimalrcs.metrics as metrics
-import optimalrcs.nonparametrics as nonparametrics
+import cupy as cp
+import boundaries
+import metrics
+import nonparametrics
 import time
-import optimalrcs.plots as plots
+import plots
 import matplotlib.pyplot as plt
 
 
 envelope_scale = 0.01
 
+def sigmoid(x):
+    return 1 / (1 + cp.exp(-x))
 
 def envelope_sigmoid(r, iter, max_iter):
     r0 = r[np.random.randint(r.shape[0])]
-    delta_r = tf.math.reduce_max(tf.math.abs(r)) - tf.math.reduce_min(tf.math.abs(r))
+    delta_r = cp.max(cp.abs(r)) - cp.min(cp.abs(r))
     if delta_r < 1e-5:
         delta_r = 1e-5
     if np.random.random() < 0.5:
-        return tf.math.sigmoid((r - r0) / envelope_scale / delta_r)
-    return tf.math.sigmoid(-(r - r0) / envelope_scale / delta_r)
+        return sigmoid((r - r0) / envelope_scale / delta_r)
+    return sigmoid(-(r - r0) / envelope_scale / delta_r)
 
 
-@tf.function
 def basis_poly_ry(r, y, n, fenv=None):
     """computes basis functions as terms of polynomial of variables r and y
 
@@ -30,35 +31,35 @@ def basis_poly_ry(r, y, n, fenv=None):
     n is the degree of the polynomial
     fenv is common envelope to focus optimization on a particular region
     """
-    r = r / tf.math.reduce_max(tf.math.abs(r))
-    y = y / tf.math.reduce_max(tf.math.abs(y))
+    r = r / cp.max(cp.abs(r))
+    y = y / cp.max(cp.abs(y))
 
     if fenv is None:
-        f = tf.ones_like(r)
+        f = cp.ones_like(r)
     else:
-        f = tf.identity(fenv)
+        f = cp.array(fenv, copy=True)
 
     fk = []
     for iy in range(n + 1):
-        fr = tf.identity(f)
+        fr = cp.array(f, copy=True)
         for ir in range(n + 1 - iy):
             fk.append(fr)
             fr = fr * r
         f = f * y
-    return tf.stack(fk)
+    return cp.stack(fk)
 
 
 class CommittorNE:
-    def __init__(self, boundary0, boundary1, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
+    def __init__(self, boundary0, boundary1, i_traj=None, t_traj=None, seed_r=None, prec=cp.float64):
         self.boundary0 = boundary0
         self.boundary1 = boundary1
-        self.b_traj = np.array(boundary0 | boundary1, prec)
-        self.i_traj = i_traj
-        self.t_traj = t_traj
+        self.b_traj = cp.asarray(boundary0 | boundary1, dtype=prec)
+        self.i_traj = cp.asarray(i_traj)
+        self.t_traj = cp.asarray(t_traj)
         if seed_r is not None:
-            self.r_traj = np.array(seed_r, prec)
+            self.r_traj = cp.asarray(seed_r, dtype=prec)
         else:
-            self.r_traj = np.ones_like(self.boundary0, prec) / 2
+            self.r_traj = cp.ones_like(self.boundary0, dtype=prec) / 2
             self.r_traj[self.boundary0] = 0
             self.r_traj[self.boundary1] = 1
         self.prec = prec
@@ -69,11 +70,11 @@ class CommittorNE:
         self.iter = 0
         self.p2i0 = None
         self.w_traj = None
-
+        
     def set_fixed_traj_length_trap(self, trap_boundary, traj_length):
         self.future_boundary.set_distance_to_end_fixed_traj_length_trap(self.i_traj, trap_boundary, traj_length)
         
-    def set_poisson_traj_length_trap(self, trap_boundary, traj_length):
+    def set_poisson_traj_length_trap(self, trap_boundary, traj_length=None):
         self.future_boundary.set_distance_to_end_poisson_traj_length_trap(self.i_traj, trap_boundary, traj_length)
 
     def print_metrics(self, metrics_print):
@@ -93,19 +94,25 @@ class CommittorNE:
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None, stable=False,
                       history_delta_t=None, history_type=None, history_shift_type=None,
-                      save_min_delta_zq=True, train_mask=None):
+                      save_min_delta_zq=True, train_mask=None, delta_r2_max_change_allowed=10):
         self.r_traj_old = self.r_traj
         self.time_start = time.time()
         if metrics_print is None:
             metrics_print = ('iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed')
-        min_delta_zq = 1000
+        self.min_delta_zq = 10000
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
-            _gamma = tf.constant(gamma, dtype=self.prec)
+            _gamma = gamma
+        if self.i_traj is None:
+            It=cp.ones_like(self.r_traj[:-1])
+        else:
+            It=cp.asarray(self.i_traj[1:] == self.i_traj[:-1],dtype=self.r_traj.dtype)
+        delta_r2=cp.sum(It*cp.square(self.r_traj[1:] - self.r_traj[:-1]))
+        
         for self.iter in range(max_iter + 1):
 
             # compute next CV y, and cast it to the required accuracy
-            y = tf.cast(comp_y(), self.prec)
+            y = cp.asarray(comp_y(), dtype=self.prec)
 
             # compute envelope, modulating the basis functions
             if self.iter % 10 == 0 and callable(envelope):
@@ -120,10 +127,15 @@ class CommittorNE:
 
             # compute the gamma parameter
             if callable(gamma):
-                _gamma = tf.constant(gamma(self.iter, max_iter), dtype=self.prec)
+                _gamma = gamma(self.iter, max_iter)
 
             # compute next update of the RC
-            self.r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma, stable)
+            r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma, stable)
+            delta_r2_new = cp.sum(It*cp.square(r_traj[1:] - r_traj[:-1]))
+            if delta_r2_new-delta_r2<delta_r2_max_change_allowed:
+                self.r_traj=r_traj
+                delta_r2=delta_r2_new
+            
 
             # compute and print various metrics
             if self.iter % print_step == 0:
@@ -132,8 +144,8 @@ class CommittorNE:
                 self.r_traj_old = self.r_traj
                 if self.iter > 0:
                     if save_min_delta_zq:
-                        if self.metrics_history['max_sd_zq'][-1] < min_delta_zq:
-                            min_delta_zq = self.metrics_history['max_sd_zq'][-1]
+                        if self.metrics_history['max_sd_zq'][-1] < self.min_delta_zq:
+                            self.min_delta_zq = self.metrics_history['max_sd_zq'][-1]
                             self.r_traj_min_sd_zq = self.r_traj
                     if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
                         break
@@ -146,18 +158,18 @@ class CommittorNE:
             if history_type is None:
                 history_type = 'y(t-d),r(t-d)'
             if history_type == 'y(t-d),r(t-d)' and history_shift_type is None:
-                if self.i_traj is not None:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                else:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
-                y1 = tf.where(it, tf.roll(y, d, 0), 0)
-                y2 = tf.where(it, tf.roll(self.r_traj, d, 0), 0)
+                if self.i_traj is not None: ### prepend d zeros to self.i_traj[d:] == self.i_traj[:-d]]
+                    it = cp.concatenate([cp.zeros([d]), (self.i_traj[d:] == self.i_traj[:-d]).astype(r_traj.dtype)], 0)
+                else:                       ### prepend d zeros to n-d ones 
+                    it = cp.concatenate([cp.zeros([d]), cp.ones([self.len - d])], 0)
+                y1 = cp.where(it, cp.roll(y, d, 0), 0)
+                y2 = cp.where(it, cp.roll(self.r_traj, d, 0), 0)
             elif history_type == 'y(t-d),y(t)' and history_shift_type is None:
                 if self.i_traj is not None:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                else:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
-                y1 = tf.where(it, tf.roll(y, d, 0), 0)
+                    it = cp.concatenate([cp.zeros([d]), (self.i_traj[d:] == self.i_traj[:-d]).astype(r_traj.dtype)], 0)
+                else:                       ### prepend d zeros to n-d ones 
+                    it = cp.concatenate([cp.zeros([d]), cp.ones([self.len - d])], 0)
+                y1 = cp.where(it, cp.roll(y, d, 0), 0)
                 y2 = y
             else:
                 y1, y2 = self._history_select_y(y, d, history_type, history_shift_type)
@@ -175,37 +187,39 @@ class CommittorNE:
             first_indices = np.where(changes)[0]
             self.p2i0 = np.repeat(first_indices, np.diff(np.append(first_indices, len(self.i_traj))))
                         # pointer to the first frame of trajectory defined by i_traj
+            self.p2i0 = cp.convert_to_tensor(self.p2i0)
 
         def shift_y(d, i_traj, y, shift_type, p2i0): # which point to select when previous point at (t-d) belongs to other trajectory
             if shift_type == 'r(t-d)':  # do nothing, take previous values y(t-d) disregarding trajectory info i_traj
-                return tf.roll(y, d, 0)
+                return cp.roll(y, d, 0)
             elif shift_type == 'r(t)':  # take y(t) instead of y(t-d)
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), y)
+                return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), y)
             elif shift_type == 'r(t0)':  # take first frame of trajectory, y(t0) instead of y(t-d)
-                if tf.is_tensor(y):
-                    yn = y.numpy()
-                else:
-                    yn = y
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), yn[p2i0])
+                return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), cp.gather(y,p2i0))
             else:  # take 0 instead of y(t-d)
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), 0)
+                return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), 0)
 
         if len(history_type) > 1:
             d1, d2 = history_type[np.random.randint(len(history_type))].split(',')
         else:
             d1, d2 = history_type[0].split(',')
-        def select_y(y_type):
-            if y_type == 'r(t)':
-                return  self.r_traj
-            elif y_type == 'y(t)':
-                return y
-            elif y_type == 'r(t-d)':
-                return shift_y(d, self.i_traj, self.r_traj, history_shift_type, self.p2i0)
-            elif y_type == 'y(t-d)':
-                return shift_y(d, self.i_traj, y, history_shift_type, self.p2i0)
-            else:
-                stop
-        return select_y(d1), select_y(d2)
+        if d1 == 'r(t)':
+            y1 = self.r_traj
+        if d1 == 'y(t)':
+            y1 = y
+        if d1 == 'r(t-d)':
+            y1 = shift_y(d, self.i_traj, self.r_traj, history_shift_type, self.p2i0)
+        if d1 == 'y(t-d)':
+            y1 = shift_y(d, self.i_traj, y, history_shift_type, self.p2i0)
+        if d2 == 'r(t)':
+            y2 = self.r_traj
+        if d2 == 'y(t)':
+            y2 = y
+        if d2 == 'r(t-d)':
+            y2 = shift_y(d, self.i_traj, self.r_traj, history_shift_type, self.p2i0)
+        if d2 == 'y(t-d)':
+            y2 = shift_y(d, self.i_traj, y, history_shift_type, self.p2i0)
+        return y1, y2
 
     def plots_metrics(self, metrics=None):
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
@@ -224,7 +238,7 @@ class CommittorNE:
             axt.grid()
             ax.set(xlabel='iteration',ylabel=m)
 
-    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False):
+    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False, dtmin=1):
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
             r_traj = self.r_traj
@@ -235,7 +249,7 @@ class CommittorNE:
             plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, w_traj=self.w_traj,
                            natural=True, dt_sim=delta_t_sim)
             plots.plot_zc1(ax3, r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt,
-                           w_traj=self.w_traj)
+                           w_traj=self.w_traj, dtmin=dtmin)
         else:
             plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj)
             plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, natural=True, dt_sim=delta_t_sim)
@@ -247,29 +261,29 @@ class CommittorNE:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
             r_traj = self.r_traj
-        plots.plot_obs_pred(ax1, r_traj, self.future_boundary, ax2=ax2, log_scale=log_scale, log_scale_pmin=log_scale_pmin)
+        plots.plot_obs_pred_q(ax1, r_traj, self.future_boundary, ax2=ax2, log_scale=log_scale, log_scale_pmin=log_scale_pmin)
         plots.plot_roc_curve(ax3, r_traj, self.future_boundary, log_scale=log_scale)
         fig.tight_layout()
         plt.show()
 
     def comp_eq_weights(self, ny=6, max_iter=1000, min_delta_x=1e-5, print_step=10, verbose=1):
-        self.w_traj = np.ones_like(self.r_traj, self.prec)
+        self.w_traj = cp.ones_like(self.r_traj, dtype=self.prec)
 
         start = time.time()
         wo = self.w_traj
         if self.i_traj is None:
-            it=np.ones_like(self.r_traj[:-1])
+            it=cp.ones_like(self.r_traj[:-1])
         else:
-            it=tf.cast(self.i_traj[1:] == self.i_traj[:-1], dtype=self.r_traj.dtype)
+            it=cp.asarray(self.i_traj[1:] == self.i_traj[:-1], dtype=self.r_traj.dtype)
         for i in range(max_iter):
             self.w_traj = nonparametrics.npnew(self.w_traj, basis_poly_ry(self.w_traj, self.r_traj, ny), it)
 
             if i % print_step == 0:
                 dx = self.w_traj - wo
                 wo = self.w_traj
-                dx = (tf.math.reduce_mean(dx**2)**0.5).numpy()
-                max_w = tf.math.reduce_max(self.w_traj).numpy()
-                min_w = tf.math.reduce_min(self.w_traj).numpy()
+                dx = (cp.mean(dx**2)**0.5).numpy()
+                max_w = cp.max(self.w_traj).numpy()
+                min_w = cp.min(self.w_traj).numpy()
                 if verbose > 1:
                     print('iteration %i, max(w)=%g, min(w)=%g, |dx|=%g, time=%g'
                            % (i, max_w, min_w, dx, time.time() - start))
@@ -282,16 +296,16 @@ class CommittorNE:
 class MFPTNE(CommittorNE):
     def __init__(self, boundary0, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
         self.boundary0 = boundary0
-        self.b_traj = np.array(boundary0, prec)
-        self.i_traj = i_traj
+        self.b_traj = cp.asarray(boundary0, dtype=prec)
+        self.i_traj = cp.asarray(i_traj)
         if t_traj is not None:
-            self.t_traj = np.array(t_traj, prec)
+            self.t_traj = cp.asarray(t_traj, dtype=prec)
         else:
-            self.t_traj = np.arange(len(self.b_traj), dtype=prec)
+            self.t_traj = cp.arange(len(self.b_traj), dtype=prec)
         if seed_r is not None:
-            self.r_traj = np.array(seed_r, prec)
+            self.r_traj = cp.asarray(seed_r, dtype=prec)
         else:
-            self.r_traj = np.ones_like(self.boundary0, prec)
+            self.r_traj = cp.ones_like(self.boundary0, dtype=prec)
             self.r_traj[self.boundary0] = 0
 
         self.prec = prec
@@ -316,11 +330,11 @@ class MFPTNE(CommittorNE):
         min_delta_zt = 1000
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
-            _gamma = tf.constant(gamma, dtype=self.prec)
+            _gamma = gamma
         for self.iter in range(max_iter + 1):
 
             # compute next CV y, and cast it to the required accuracy
-            y = tf.cast(comp_y(), self.prec)
+            y = cp.asarray(comp_y(), dtype=self.prec)
 
             # compute envelope, modulating the basis functions
             if self.iter % 10 == 0 and callable(envelope):
@@ -335,7 +349,7 @@ class MFPTNE(CommittorNE):
 
             # compute the gamma parameter
             if callable(gamma):
-                _gamma = tf.constant(gamma(self.iter, max_iter), dtype=self.prec)
+                _gamma = gamma(self.iter, max_iter)
 
             # compute next update of the RC
             self.r_traj = nonparametrics.npnet(self.r_traj, fk, self.t_traj, self.i_traj, _gamma, )
@@ -353,22 +367,22 @@ class MFPTNE(CommittorNE):
                     if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
                         break
                     
-    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False):
+    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False, xlabel='$\\tau$'):
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
             r_traj = self.r_traj
         if reweight:
             if self.w_traj is None:
                 self.comp_eq_weights()
-            plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, w_traj=self.w_traj)
+            plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, w_traj=self.w_traj, xlabel=xlabel)
             plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, w_traj=self.w_traj,
-                           natural=True, dt_sim=delta_t_sim)
+                           natural=True, dt_sim=delta_t_sim, xlabel=xlabel)
             plots.plot_zc1(ax3, r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt,
-                           w_traj=self.w_traj)
+                           w_traj=self.w_traj, xlabel=xlabel)
         else:
-            plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj)
-            plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, natural=True, dt_sim=delta_t_sim)
-            plots.plot_zt(ax3, r_traj, self.b_traj, self.t_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt)
+            plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, xlabel=xlabel)
+            plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, natural=True, dt_sim=delta_t_sim, xlabel=xlabel)
+            plots.plot_zt(ax3, r_traj, self.b_traj, self.t_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt, xlabel=xlabel)
         fig.tight_layout()
         plt.show()
 
@@ -377,8 +391,77 @@ class MFPTNE(CommittorNE):
         if r_traj is None:
             r_traj = self.r_traj
         plots.plot_obs_pred_t(ax1, r_traj, self.future_boundary, ax2=ax2, log_scale=log_scale, log_scale_tmin=log_scale_tmin)
-        #r_traj=r_traj/tf.reduce_max(r_traj)
+        #r_traj=r_traj/cp.max(r_traj)
         #plots.plot_roc_curve(ax3, r_traj, self.future_boundary, log_scale=log_scale)
         fig.tight_layout()
         plt.show()
+
+class Committor(CommittorNE):
+    def fit_transform(self, comp_y,
+                      envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
+                      max_iter=100000, min_delta_x=None, min_delta_r2=None,
+                      print_step=1000, metrics_print=None, stable=False,
+                      save_min_delta_zq=True, train_mask=None, delta2_r2_min=10):
+        self.r_traj_old = self.r_traj
+        self.time_start = time.time()
+        if metrics_print is None:
+            metrics_print = ('iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed')
+        self.min_delta_zq = 10000
+        _envelope = (1 - self.b_traj)
+        if not callable(gamma):
+            _gamma = gamma
+        if self.i_traj is None:
+            It=cp.ones_like(self.r_traj[:-1])
+        else:
+            It=cp.asarray(self.i_traj[1:] == self.i_traj[:-1],dtype=self.r_traj.dtype)
+        delta_r2=cp.sum(It*cp.square(self.r_traj[1:] - self.r_traj[:-1]))
         
+        for self.iter in range(max_iter + 1):
+
+            # compute next CV y, and cast it to the required accuracy
+            y = cp.asarray(comp_y(), dtype=self.prec)
+
+            # compute envelope, modulating the basis functions
+            if self.iter % 10 == 0 and callable(envelope):
+                _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
+
+            # compute the basis functions
+            fk = basis_functions(self.r_traj, y, ny, _envelope)
+
+            # compute the gamma parameter
+            if callable(gamma):
+                _gamma = gamma(self.iter, max_iter)
+
+            # compute next update of the RC
+            r_traj = nonparametrics.npq(self.r_traj, fk, self.i_traj)
+            delta_r2_new = cp.sum(It*cp.square(r_traj[1:] - r_traj[:-1]))
+            if delta_r2_new-delta_r2<delta2_r2_min:
+                self.r_traj=r_traj
+                delta_r2=delta_r2_new
+            
+
+            # compute and print various metrics
+            if self.iter % print_step == 0:
+                self.compute_metrics(metrics_print)
+                self.print_metrics(metrics_print)
+                self.r_traj_old = self.r_traj
+                if self.iter > 0:
+                    if save_min_delta_zq:
+                        if self.metrics_history['max_sd_zq'][-1] < self.min_delta_zq:
+                            self.min_delta_zq = self.metrics_history['max_sd_zq'][-1]
+                            self.r_traj_min_sd_zq = self.r_traj
+                    if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
+                        break
+                    if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
+                        break
+
+                        
+    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, dtmin=1):
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
+        if r_traj is None:
+            r_traj = self.r_traj
+        plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj)
+        plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, natural=True, dt_sim=delta_t_sim)
+        plots.plot_zq(ax3, r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt)
+        fig.tight_layout()
+        plt.show()
