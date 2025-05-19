@@ -138,6 +138,7 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         nab = cp.where(future_boundary.index[istart:iend] > -1, 1, 0)
         nd = cp.where(future_boundary.index[istart:iend] > -1, 0, 1)
         bin_indices = cp.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_nb = cp.bincount(bin_indices, minlength=nbins + 1, weights=nb)
         hist_nab = cp.bincount(bin_indices, minlength=nbins + 1, weights=nab)
         hist_nd = cp.bincount(bin_indices, minlength=nbins + 1, weights=nd)
@@ -189,6 +190,7 @@ def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         na = cp.where(future_boundary.index[istart:iend] > -1, 1, 0)
         nd = cp.where(future_boundary.index[istart:iend] > -1, 0, 1)
         bin_indices = cp.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_ta = cp.bincount(bin_indices, minlength=nbins + 1, weights=ta)
         hist_na = cp.bincount(bin_indices, minlength=nbins + 1, weights=na)
         hist_nd = cp.bincount(bin_indices, minlength=nbins + 1, weights=nd)
