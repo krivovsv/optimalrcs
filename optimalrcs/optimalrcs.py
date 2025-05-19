@@ -54,8 +54,10 @@ class CommittorNE:
         self.boundary0 = boundary0
         self.boundary1 = boundary1
         self.b_traj = cp.asarray(boundary0 | boundary1, dtype=prec)
-        self.i_traj = cp.asarray(i_traj)
-        self.t_traj = cp.asarray(t_traj)
+        self.i_traj=None
+        if i_traj is not None: self.i_traj = cp.asarray(i_traj)
+        self.t_traj=None
+        if t_traj is not None: self.t_traj = cp.asarray(t_traj)
         if seed_r is not None:
             self.r_traj = cp.asarray(seed_r, dtype=prec)
         else:
@@ -183,11 +185,11 @@ class CommittorNE:
         if history_type is None:
             history_type = 'y(t-d),r(t-d)'
         if history_shift_type == 'r(t0)' and self.p2i0 is None:
-            changes = np.diff(self.i_traj, prepend=self.i_traj[0]-1) != 0
-            first_indices = np.where(changes)[0]
-            self.p2i0 = np.repeat(first_indices, np.diff(np.append(first_indices, len(self.i_traj))))
-                        # pointer to the first frame of trajectory defined by i_traj
-            self.p2i0 = cp.convert_to_tensor(self.p2i0)
+            # pointer to the first frame of trajectory defined by i_traj
+            changes = cp.diff(self.i_traj, prepend=self.i_traj[0]-1) != 0
+            first_indices = cp.where(changes)[0]
+            #need to use np.repeat
+            self.p2i0 = cp.asarray(np.repeat(first_indices.get(), cp.diff(cp.append(first_indices, len(self.i_traj)).get())))
 
         def shift_y(d, i_traj, y, shift_type, p2i0): # which point to select when previous point at (t-d) belongs to other trajectory
             if shift_type == 'r(t-d)':  # do nothing, take previous values y(t-d) disregarding trajectory info i_traj
@@ -195,7 +197,7 @@ class CommittorNE:
             elif shift_type == 'r(t)':  # take y(t) instead of y(t-d)
                 return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), y)
             elif shift_type == 'r(t0)':  # take first frame of trajectory, y(t0) instead of y(t-d)
-                return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), cp.gather(y,p2i0))
+                return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), y[p2i0])
             else:  # take 0 instead of y(t-d)
                 return cp.where(cp.roll(i_traj, d, 0) == i_traj, cp.roll(y, d, 0), 0)
 
@@ -298,6 +300,8 @@ class MFPTNE(CommittorNE):
         self.boundary0 = boundary0
         self.b_traj = cp.asarray(boundary0, dtype=prec)
         self.i_traj = cp.asarray(i_traj)
+        self.i_traj=None
+        if i_traj is not None: self.i_traj = cp.asarray(i_traj)
         if t_traj is not None:
             self.t_traj = cp.asarray(t_traj, dtype=prec)
         else:

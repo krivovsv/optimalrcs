@@ -91,7 +91,7 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
     delta_r = delta_r * (past_boundary.delta_i_from_start >= dt).astype(r_traj.dtype)
     if w_traj is not None:
-        delta_r = delta_r * cp.gather(w_traj, cp.where(past_boundary.index2>-1, past_boundary.index2, 0))
+        delta_r = delta_r * w_traj[cp.where(past_boundary.index2>-1, past_boundary.index2, 0)]
     bin_indices = cp.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
     hist += cp.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
     hist += cp.bincount(bin_indices_r, minlength=nbins + 1, weights=-delta_r)
@@ -111,12 +111,12 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
     if past_boundary is None:
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
-    i_future_boundary_crossed = (cp.cast(future_boundary.index2 > -1, dtype=r_traj.dtype).astype(cp.int32) *
-                                 cp.cast(future_boundary.delta_i2 <= dt, dtype=r_traj.dtype).astype(cp.int32))
-    i_past_boundary_crossed = (cp.cast(past_boundary.index2 > -1, dtype=r_traj.dtype).astype(cp.int32) *
-                               cp.cast(past_boundary.delta_i2 >= -dt, dtype=r_traj.dtype).astype(cp.int32))
+    i_future_boundary_crossed = ((future_boundary.index2 > -1).astype(r_traj.dtype) *
+                                 (future_boundary.delta_i2 <= dt).astype(r_traj.dtype))
+    i_past_boundary_crossed = ((past_boundary.index2 > -1).astype(r_traj.dtype) *
+                               (past_boundary.delta_i2 >= -dt).astype(r_traj.dtype))
     # compensation for irregular sampling interval
-    N=cp.astype(future_boundary.delta_i_to_end+past_boundary.delta_i_from_start+1, dtype=r_traj.dtype)
+    N=future_boundary.delta_i_to_end+past_boundary.delta_i_from_start+1
     N1=cp.where(N>dt+0.1, (N-1.)/(N-dt+0.0000001), 0)
     N=cp.where(N>dtmin, N1, 0).astype(r_traj.dtype)
     
@@ -124,7 +124,7 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
     # no crossings of boundaries
     delta_r = (1 - i_future_boundary_crossed[:-dt]) * (1 - i_past_boundary_crossed[dt:]) * (r_traj[dt:] - r_traj[:-dt])
     if i_traj is not None:
-        delta_r = delta_r * cp.cast(i_traj[dt:] == i_traj[:-dt], dtype=r_traj.dtype).astype(cp.int32)
+        delta_r = delta_r * (i_traj[dt:] == i_traj[:-dt]).astype(r_traj.dtype)
     if w_traj is not None:
         delta_r = delta_r * w_traj[:-dt]
     delta_r *= N[:-dt]
@@ -134,7 +134,7 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
 
     # crossing of the future boundary
     delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj)
-    delta_r = delta_r * cp.cast(future_boundary.delta_i_to_end >= dt, dtype=r_traj.dtype).astype(cp.int32)
+    delta_r = delta_r * (future_boundary.delta_i_to_end >= dt).astype(r_traj.dtype)
     if w_traj is not None:
         delta_r = delta_r * w_traj
     delta_r *= N
@@ -154,9 +154,9 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
 
     # crossing of the past boundary
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
-    delta_r = delta_r * cp.cast(past_boundary.delta_i_from_start >= dt, dtype=r_traj.dtype).astype(cp.int32)
+    delta_r = delta_r * (past_boundary.delta_i_from_start >= dt).astype(r_traj.dtype)
     if w_traj is not None:
-        delta_r = delta_r * cp.gather(w_traj, cp.where(past_boundary.index2>-1, past_boundary.index2, 0))
+        delta_r = delta_r * w_traj[cp.where(past_boundary.index2>-1, past_boundary.index2, 0)]
     delta_r *= N
     bin_indices = cp.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
     hist += cp.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
@@ -218,7 +218,7 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
     delta_r = delta_r * (past_boundary.delta_i_from_start >= dt).astype(r_traj.dtype)
     if w_traj is not None:
-        delta_r *= cp.gather(w_traj, cp.where(past_boundary.index2>-1, past_boundary.index2, 0))
+        delta_r *= w_traj[cp.where(past_boundary.index2>-1, past_boundary.index2, 0)]
     bin_indices = cp.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
     hist += cp.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
 

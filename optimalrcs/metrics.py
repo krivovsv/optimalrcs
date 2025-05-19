@@ -168,7 +168,7 @@ def _comp_max_grad_zt(r_traj, b_traj, t_traj, i_traj=None, future_boundary=None,
 def _mse(r_traj, b_traj=None, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
-    return cp.mean(cp.where(future_boundary.index > -1, future_boundary.r-r_traj, 0)**2)
+    return cp.mean(cp.where(future_boundary.index > -1, future_boundary.r-r_traj, 0)**2).get()
 
 
 
@@ -178,7 +178,7 @@ def _mse_eq(r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundar
     if past_boundary is None:
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
     return (cp.mean(cp.where(future_boundary.index > -1, future_boundary.r - r_traj, 0)**2) +
-            cp.mean(cp.where(past_boundary.index > -1, r_traj-past_boundary.r, 0) ** 2))/2
+            cp.mean(cp.where(past_boundary.index > -1, r_traj-past_boundary.r, 0) ** 2)).get()/2
 
 
 def _cross_entropy(r_traj, b_traj=None, i_traj=None, future_boundary=None, eps=1e-6):
@@ -199,13 +199,13 @@ def _auc(r_traj, b_traj=None, i_traj=None, future_boundary=None, skip_boundaries
     return sklearn.metrics.roc_auc_score(future_boundary.r[ok].get(), r_traj[ok].get())
 
 def _delta_x(r1_traj, r2_traj):
-    return cp.mean((r1_traj-r2_traj) ** 2) ** 0.5
+    return cp.mean((r1_traj-r2_traj) ** 2).get() ** 0.5
 
 
 def _low_bound_delta_r2_eq(r_traj, b_traj, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
-    return cp.reduce_sum(cp.where(future_boundary.index[1:] > -1,
+    return cp.sum(cp.where(future_boundary.index[1:] > -1,
                                   (future_boundary.r[1:] - future_boundary.r[:-1]) ** 2, 0))
 
 
@@ -216,7 +216,7 @@ def _imfpt_eq(r_traj, dt=1):
 def _min_imfpt_eq(b_traj, i_traj=None, future_boundary=None):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(b_traj, b_traj, i_traj=i_traj)
-    return cp.reduce_sum(cp.where(future_boundary.index > -1, b_traj * (future_boundary.delta_t + 1) ** 2, 0))
+    return cp.sum(cp.where(future_boundary.index > -1, b_traj * (future_boundary.delta_t + 1) ** 2, 0))
 
 
 def delta_r2(rc):
