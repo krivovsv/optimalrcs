@@ -382,3 +382,74 @@ class MFPTNE(CommittorNE):
         fig.tight_layout()
         plt.show()
         
+class Committor(CommittorNE):
+    def fit_transform(self, comp_y,
+                      envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
+                      max_iter=100000, min_delta_x=None, min_delta_r2=None,
+                      print_step=1000, metrics_print=None, stable=False,
+                      save_min_delta_zq=True, train_mask=None, delta2_r2_min=10):
+        self.r_traj_old = self.r_traj
+        self.time_start = time.time()
+        if metrics_print is None:
+            metrics_print = ('iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed')
+        self.min_delta_zq = 10000
+        _envelope = (1 - self.b_traj)
+        if not callable(gamma):
+            _gamma = tf.constant(gamma, dtype=self.prec)
+        if self.i_traj is None:
+            It=tf.ones_like(self.r_traj[:-1])
+        else:
+            It=tf.cast(self.i_traj[1:] == self.i_traj[:-1],self.r_traj.dtype)
+        delta_r2=tf.reduce_sum(It*tf.square(self.r_traj[1:] - self.r_traj[:-1]))
+        
+        for self.iter in range(max_iter + 1):
+
+            # compute next CV y, and cast it to the required accuracy
+            y = tf.cast(comp_y(), self.prec)
+
+            # compute envelope, modulating the basis functions
+            if self.iter % 10 == 0 and callable(envelope):
+                _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
+
+            # compute the basis functions
+            fk = basis_functions(self.r_traj, y, ny, _envelope)
+
+            # compute the gamma parameter
+            if callable(gamma):
+                _gamma = tf.constant(gamma(self.iter, max_iter), dtype=self.prec)
+
+            # compute next update of the RC
+            r_traj = nonparametrics.npq(self.r_traj, fk, self.i_traj)
+            delta_r2_new = tf.reduce_sum(It*tf.square(r_traj[1:] - r_traj[:-1]))
+            if delta_r2_new-delta_r2<delta2_r2_min:
+                self.r_traj=r_traj
+                delta_r2=delta_r2_new
+            
+
+            # compute and print various metrics
+            if self.iter % print_step == 0:
+                self.compute_metrics(metrics_print)
+                self.print_metrics(metrics_print)
+                self.r_traj_old = self.r_traj
+                if self.iter > 0:
+                    if save_min_delta_zq:
+                        if self.metrics_history['max_sd_zq'][-1] < self.min_delta_zq:
+                            self.min_delta_zq = self.metrics_history['max_sd_zq'][-1]
+                            self.r_traj_min_sd_zq = self.r_traj
+                    if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
+                        break
+                    if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
+                        break
+
+                        
+    def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, dtmin=1):
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
+        if r_traj is None:
+            r_traj = self.r_traj
+        plots.plot_fep(ax1, r_traj, i_traj=self.i_traj, t_traj=self.t_traj)
+        plots.plot_fep(ax2, r_traj, i_traj=self.i_traj, t_traj=self.t_traj, natural=True, dt_sim=delta_t_sim)
+        plots.plot_zq(ax3, r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt)
+        fig.tight_layout()
+        plt.show()
+
+        
