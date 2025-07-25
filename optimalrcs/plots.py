@@ -6,9 +6,8 @@ import numpy as np
 ldt0 = [2**i for i in range(16)]
 
 
-def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-             ln=True, w_traj=None, dtmin=1):
-    if ldt is None:
+def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$', ln=True, w_traj=None, dtmin=1):
+    if (ldt is None):
         ldt = ldt0
     if tf.is_tensor(r_traj):
         r_traj = r_traj.numpy()
