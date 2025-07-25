@@ -1,5 +1,5 @@
-import optimalrcs.cut_profiles as cut_profiles, optimalrcs.metrics as metrics
-import optimalrcs.boundaries as bd
+from . import cut_profiles, metrics
+from . import boundaries as bd
 import tensorflow as tf
 import numpy as np
 
@@ -7,7 +7,7 @@ ldt0 = [2**i for i in range(16)]
 
 
 def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-             ln=True, w_traj=None):
+             ln=True, w_traj=None, dtmin=1):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -18,8 +18,8 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
     for dt in ldt:
-        lx, ly = cut_profiles.comp_zc1(r_traj, b_traj, future_boundary, past_boundary, dt=tf.constant(dt),
-                                       i_traj=i_traj, w_traj=w_traj)
+        lx, ly = cut_profiles.comp_zc1_irreg(r_traj, b_traj, future_boundary, past_boundary, dt=tf.constant(dt),
+                                       i_traj=i_traj, w_traj=w_traj, dtmin=dtmin)
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
         else:
@@ -33,7 +33,7 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
 
 
 def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-            ln=False):
+            w_traj=None, ln=False, force0=False, forcemean0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -45,6 +45,8 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
 
     for dt in ldt:
         lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        if force0 : ly-=ly[0]
+        if forcemean0 : ly-=tf.math.reduce_mean(ly[:-1])
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
             ylabel = '$-\ln Z_q$'
@@ -54,8 +56,8 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
 
-def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$mfpt$',
-            ln=False):
+def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$\\tau$',
+            ln=False, force0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -67,6 +69,7 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 
     for dt in ldt:
         lx, ly = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        if force0 : ly-=ly[0]
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
             ylabel = '$-\ln Z_t$'
@@ -80,6 +83,7 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 def plot_fep(ax, r_traj, i_traj=None, t_traj=None, w_traj=None, xlabel='$q$', natural=False, dt_sim=1, lt='r-'):
     if natural:
         r_traj = transform_q2qn(r_traj, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, dt_sim=dt_sim)
+        if xlabel=='$q$': xlabel='$\\tilde{q}$'
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj)
     ax.plot(lx[:-2], -np.log(2 * lzh[:-2]), lt)
     ax.set(ylabel='$F/kT$', xlabel=xlabel)
@@ -134,6 +138,7 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         nab = tf.where(future_boundary.index[istart:iend] > -1, one, zero)
         nd = tf.where(future_boundary.index[istart:iend] > -1, zero, one)
         bin_indices = tf.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_nb = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nb)
         hist_nab = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nab)
         hist_nd = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nd)
@@ -150,14 +155,14 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
     if halves:
         obs_pred(0, len(r_traj)//2, ':g', 'obs vs pred 1/2', ax)
         obs_pred(len(r_traj)//2, -1, ':b', 'obs vs pred 2/2', ax)
-    ax.plot((0, 1), (0, 1), ':k', label='obs = pred')
-    ax.set(xlabel='pB predicted', ylabel='pB observed')
+    ax.plot((0, 1), (0, 1), '--k', label='obs = pred')
+    ax.set(xlabel='$p_B$ predicted', ylabel='$p_B$ observed')
     if log_scale:
         ax.set(xscale='log', yscale='log')
     ax.legend()
     ax.grid()
     if ax2 is not None:
-        ax2.set(xlabel='pB predicted', ylabel='#', yscale='log')
+        ax2.set(xlabel='$p_B$ predicted', ylabel='#', yscale='log')
         #ax2.set_yscale('log')
         ax2.legend()
         ax2.grid()
@@ -187,6 +192,7 @@ def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         na = tf.where(future_boundary.index[istart:iend] > -1, one, zero)
         nd = tf.where(future_boundary.index[istart:iend] > -1, zero, one)
         bin_indices = tf.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_ta = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=ta)
         hist_na = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=na)
         hist_nd = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nd)
@@ -203,7 +209,7 @@ def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         obs_pred(0, len(r_traj)//2, ':g', 'obs vs pred 1/2', ax)
         obs_pred(len(r_traj)//2, -1, ':b', 'obs vs pred 2/2', ax)
     ax.plot((r_min, r_max), (r_min, r_max), ':k', label='obs = pred')
-    ax.set(xlabel='mfpt predicted', ylabel='mfpt observed')
+    ax.set(xlabel='$\\tau$ predicted', ylabel='$\\tau$ observed')
     if log_scale:
         ax.set(xscale='log', yscale='log')
     ax.legend()
@@ -227,6 +233,12 @@ def plot_roc_curve(ax, r_traj, future_boundary, log_scale=False):
     ax.plot(fpr[1:], thresh[1:], 'r-', label='threshold')
     auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok], r_traj[ok])
     ax.plot(fpr, tpr, 'b-', label='tpr, AUC: %.2f%%' % (auc * 100))
+    ### without boundaries
+    ok = (ok) & (future_boundary.delta_i!=0)
+    fpr, tpr, thresh = sklearn.metrics.roc_curve(future_boundary.r[ok], r_traj[ok])
+    ax.plot(fpr[1:], thresh[1:], 'r:', label='threshold no bd')
+    auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok], r_traj[ok])
+    ax.plot(fpr, tpr, 'b:', label='tpr no bd, AUC: %.2f%%' % (auc * 100))
     if log_scale:
         ax.set(xscale='log', xlabel='False positive rate', ylabel='True positive rate')
     else:
@@ -234,7 +246,70 @@ def plot_roc_curve(ax, r_traj, future_boundary, log_scale=False):
     ax.legend()
     ax.grid()
 
-def plot_bootstrap_sd_zq(ax,r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, ldt=None, mseed=10):
+def plot_pr_curve(ax, r_traj, future_boundary, log_scale=False):
+    import sklearn.metrics
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+
+    ok = future_boundary.index > -1
+    precision, recall, thresh = sklearn.metrics.precision_recall_curve(future_boundary.r[ok], r_traj[ok])
+    ax.plot(recall[1:], thresh, 'r-', label='threshold')
+    auc_pr = sklearn.metrics.auc(recall, precision)
+    ax.plot(recall, precision, 'b-', label='precision, AUC: %.2f%%' % (auc_pr * 100))
+    if log_scale:
+        ax.set(xscale='log', xlabel='recall (TPR)', ylabel='precision')
+    else:
+        ax.set(xlabel='recall (TPR)', ylabel='precision')
+    ax.legend()
+    ax.grid()
+    
+def plot_bootstrap_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, lp=None, t=2):
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+    if future_boundary is None:
+        future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
+    if past_boundary is None:
+        past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
+
+    lx=[]
+    ly=[]
+    if lp is None:
+        lp=[0.5**i for i in range(11)]
+    for p in lp:
+        w_traj = np.random.poisson(lam=p, size=len(r_traj))
+        sd_zq=metrics._comp_max_delta_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj = w_traj)[2]
+        lx.append(sum(w_traj))
+        ly.append(sd_zq**2)
+    
+    import statsmodels.api as sm
+
+    x=np.asarray(lx)
+    y=np.asarray(ly)
+
+    model = sm.OLS(y, x)
+    results = model.fit()
+    y_pred = results.predict(x)
+
+    ax.scatter(x, y, label='Data', color='blue', alpha=0.6)
+    ax.plot(x, y_pred, 'r-', label='~ size, F-stat = %g' %results.fvalue, alpha=0.6)
+
+    if t==2:
+        model = sm.OLS(y, x*x)
+        results = model.fit()
+        y_pred = results.predict(x*x)
+        ax.plot(x, y_pred, 'g-', label='~ size$^2$, F-stat = %g' %results.fvalue, alpha=0.6)
+    if t==3:
+        X = np.column_stack((x, x*x))
+        model = sm.OLS(y, X)
+        results = model.fit()
+        y_pred = results.predict(X)
+        ax.plot(x, y_pred, 'g-', label='~ size + size$^2$, F-stat = %g' %results.fvalue, alpha=0.6)
+    
+    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='data size', ylabel='sd. of $Z_q$', xscale='log', yscale='log')
+    ax.legend()
+    ax.grid()
+
+def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, ldt=None, mseed=10):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -247,11 +322,12 @@ def plot_bootstrap_sd_zq(ax,r_traj, b_traj=None, i_traj=None, future_boundary=No
     ldti=[]
     lsd=[]
     for seed in range(mseed):
-        np.random.seed(seed)
+        np.random.seed(seed+100)
         if seed==0:
             w_traj = np.ones_like(r_traj)
         else:
             w_traj = np.random.poisson(lam=1, size=len(r_traj))
+            w_traj = np.array(w_traj, dtype=r_traj.dtype)
         for dt in ldt:
             lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
             lz = lz[:-1].numpy()
@@ -280,6 +356,7 @@ def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_bounda
             w_traj = np.ones_like(r_traj)
         else:
             w_traj = np.random.poisson(lam=1, size=len(r_traj))
+            w_traj = np.array(w_traj,dtype=r_traj.dtype)
         lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
         lz = lz[:-1].numpy()
         lx = lx[:-1].numpy()
