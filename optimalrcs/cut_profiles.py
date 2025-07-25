@@ -1,6 +1,6 @@
 import numpy as np
 import cupy as cp
-import boundaries as bd
+from . import boundaries as bd
 
 
 def comp_zc1_logic(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,

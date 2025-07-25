@@ -1,6 +1,6 @@
 import cupy as cp
-import boundaries as bd
-import cut_profiles
+from . import boundaries as bd
+from . import cut_profiles
 import numpy as np
 import time
 

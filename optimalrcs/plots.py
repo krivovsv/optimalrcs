@@ -1,5 +1,5 @@
-import cut_profiles, metrics
-import boundaries as bd
+from . import cut_profiles, metrics
+from . import boundaries as bd
 import cupy as cp
 import numpy as np
 

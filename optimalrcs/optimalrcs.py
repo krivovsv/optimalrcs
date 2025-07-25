@@ -1,10 +1,10 @@
 import numpy as np
 import cupy as cp
-import boundaries
-import metrics
-import nonparametrics
+from . import boundaries
+from . import metrics
+from . import nonparametrics
+from . import plots
 import time
-import plots
 import matplotlib.pyplot as plt
 
 
