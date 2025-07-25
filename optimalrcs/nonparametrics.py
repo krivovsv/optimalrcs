@@ -183,12 +183,12 @@ def npnew(r, fk, it):
 
     b = -cp.tensordot(dfk * it, r[:-1], 1)
     b = cp.reshape(b, [b.shape[0], 1])
-    scale = cp.math.reduce_sum(1 - r[:-1] * it)
+    scale = cp.sum(1 - r[:-1] * it)
     scale = cp.reshape(scale, [1, 1])
-    b = cp.concat((b, scale), 0)
+    b = cp.concatenate((b, scale), 0)
 
     ones = cp.reshape(it, [1, it.shape[0]])
-    dfk = cp.concat((dfk * it, ones), 0)
+    dfk = cp.concatenate((dfk * it, ones), 0)
     akj = cp.tensordot(dfk, fk[:, :-1], axes=[1, 1])
 
     al_j = cp.linalg.lstsq(akj, b, rcond=None)[0]

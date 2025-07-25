@@ -33,7 +33,7 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
 
 
 def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-            w_traj=None, ln=False, force0=False):
+            w_traj=None, ln=False, force0=False, forcemean0=False):
     if ldt is None:
         ldt = ldt0
     if future_boundary is None:
@@ -44,7 +44,7 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
     for dt in ldt:
         lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=dt)
         if force0: ly -= ly[0]
-#        if force0 : ly-=cp.mean(ly[:-1])
+        if forcemean0 : ly-=tf.math.reduce_mean(ly[:-1])
         if ln:
             ax.plot(lx.get()[:-1], -np.log(ly.get()[:-1]))
             ylabel = '$-\\ln Z_q$'
@@ -55,7 +55,7 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
     ax.grid()
 
 def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$\\tau$',
-            ln=False):
+            ln=False, force0=False):
     if ldt is None:
         ldt = ldt0
 #    if isinstance(r_traj, cp.ndarray):
@@ -67,6 +67,7 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 
     for dt in ldt:
         lx, ly = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=dt)
+        if force0: ly -= ly[0]
         if ln:
             ax.plot(lx.get()[:-1], -np.log(ly.get()[:-1]))
             ylabel = '$-\\ln Z_t$'
@@ -128,8 +129,10 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
             r_min = cp.amin(cp.where(r_traj >0, r_traj, r_max))
         else:
             r_min = max(r_min, log_scale_pmin)
-        bin_edges = cp.exp(cp.linspace(np.log(r_min), np.log(r_max),
+        bin_edges = cp.exp(cp.linspace(cp.log(r_min), cp.log(r_max),
                                        nbins + 1))  # linear in log space
+        r_traj=cp.maximum(r_traj,r_min)
+        
 
 
     def obs_pred(istart, iend, line_type, label, ax, ax2=None):
@@ -230,6 +233,12 @@ def plot_roc_curve(ax, r_traj, future_boundary, log_scale=False):
     ax.plot(fpr[1:], thresh[1:], 'r-', label='threshold')
     auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok].get(), r_traj[ok].get())
     ax.plot(fpr, tpr, 'b-', label='tpr, AUC: %.2f%%' % (auc * 100))
+    ### without boundaries
+    ok = (ok) & (future_boundary.delta_i!=0)
+    fpr, tpr, thresh = sklearn.metrics.roc_curve(future_boundary.r[ok].get(), r_traj[ok].get())
+    ax.plot(fpr[1:], thresh[1:], 'r:', label='threshold no bd')
+    auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok].get(), r_traj[ok].get())
+    ax.plot(fpr, tpr, 'b:', label='tpr no bd, AUC: %.2f%%' % (auc * 100))
     if log_scale:
         ax.set(xscale='log', xlabel='False positive rate', ylabel='True positive rate')
     else:
@@ -326,7 +335,7 @@ def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=N
     ax.plot(ldti,lsd,'bx')
     ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
 
-def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, mseed=10):
+def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, mseed=10, force0=False):
     if future_boundary is None:
         future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
     if past_boundary is None:
@@ -342,6 +351,7 @@ def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_bounda
         lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=cp.array(dt))
         lz = lz[:-1].get()
         lx = lx[:-1].get()
+        if force0: lz -= lz[0]
         if seed==0:
             ax.plot(lx,lz,'r-')
         else:

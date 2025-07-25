@@ -67,42 +67,44 @@ class FutureBoundary:
             self.delta_t2 = cp.where(self.index2 > -1, t_traj[self.index2] - t_traj[index_frame], 0)
 
     def set_distance_to_end(self, i_traj):
-        traj_ends=np.where(np.roll(i_traj,-1)!=i_traj)[0]
-        traj_starts=np.concatenate(([0],traj_ends[:-1]+1))
-        self.delta_i_to_end=np.zeros_like(i_traj)
+        traj_ends=cp.where(np.roll(i_traj,-1)!=i_traj)[0]
+        traj_starts=cp.concatenate(([0],traj_ends[:-1]+1))
+        self.delta_i_to_end=cp.zeros_like(i_traj)
         for i_start, i_end in zip(traj_starts, traj_ends):
             self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
             
     def set_distance_to_end_fixed_traj_length_trap(self, i_traj, trap_boundary, traj_length):
-        traj_ends=np.where(np.roll(i_traj,-1)!=i_traj)[0]
+        traj_ends=cp.where(cp.roll(i_traj,-1)!=i_traj)[0].get()
         traj_starts=np.concatenate(([0],traj_ends[:-1]+1))
-        self.delta_i_to_end=np.zeros_like(i_traj)
+        self.delta_i_to_end=cp.zeros_like(i_traj).get()
         traj_length=traj_length-1
         for i_start, i_end in zip(traj_starts, traj_ends):
             self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
             if trap_boundary[i_end] and (traj_length > i_end-i_start):
                 self.delta_i_to_end[i_start:i_end+1] += traj_length - (i_end - i_start)
+        self.delta_i_to_end=cp.asarray(self.delta_i_to_end)
 
     def set_distance_to_end_poisson_traj_length_trap(self, i_traj, trap_boundary, average_traj_length=None):
-            traj_ends=np.where(np.roll(i_traj,-1)!=i_traj)[0]
-            traj_starts=np.concatenate(([0],traj_ends[:-1]+1))
-            self.delta_i_to_end=np.zeros_like(i_traj)
-            tb=0
-            nb=0
-            if average_traj_length is None:
-                for i_start, i_end in zip(traj_starts, traj_ends):
-                    if trap_boundary[i_end]:
-                        tb+=i_end-i_start
-                        nb+=1
-                tnb=(len(i_traj)-tb)/(len(traj_ends)-nb)
-                tb=tb/nb
-                average_traj_length=int(tnb-tb)
-                #print (tb,tnb,average_traj_length)
+        traj_ends=cp.where(cp.roll(i_traj,-1)!=i_traj)[0].get()
+        traj_starts=np.concatenate(([0],traj_ends[:-1]+1))
+        self.delta_i_to_end=cp.zeros_like(i_traj).get()
+        tb=0
+        nb=0
+        if average_traj_length is None:
             for i_start, i_end in zip(traj_starts, traj_ends):
-                self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
                 if trap_boundary[i_end]:
-                    traj_length=int(-np.log(np.random.random())*average_traj_length -1)
-                    self.delta_i_to_end[i_start:i_end+1] += traj_length
+                    tb+=i_end-i_start
+                    nb+=1
+            tnb=(len(i_traj)-tb)/(len(traj_ends)-nb)
+            tb=tb/nb
+            average_traj_length=int(tnb-tb)
+            #print (tb,tnb,average_traj_length)
+        for i_start, i_end in zip(traj_starts, traj_ends):
+            self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
+            if trap_boundary[i_end]:
+                traj_length=int(-np.log(np.random.random())*average_traj_length -1)
+                self.delta_i_to_end[i_start:i_end+1] += traj_length
+        self.delta_i_to_end=cp.asarray(self.delta_i_to_end)
             
 class PastBoundary:
     def __init__(self, r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray = None, i_traj: np.ndarray = None) -> None:
@@ -132,18 +134,18 @@ class PastBoundary:
         self.delta_i_from_start=cp.asarray(self.delta_i_from_start)
         
         self.index=cp.asarray(self.index)
-        self.r = np.where(self.index > -1, r_traj[self.index], 0)
+        self.r = cp.where(self.index > -1, r_traj[self.index], 0)
         index_frame = cp.arange(n,dtype=cp.int32)
-        self.delta_i = np.where(self.index > -1, self.index - index_frame, 0)
-        self.index2=np.roll(self.index, 1)
+        self.delta_i = cp.where(self.index > -1, self.index - index_frame, 0)
+        self.index2=cp.roll(self.index, 1)
         self.index2[0]=-1
         if i_traj is not None:
-            self.index2[i_traj!=np.roll(i_traj,1)]=-1
-        self.r2 = np.where(self.index2 > -1, r_traj[self.index2], 0)
-        self.delta_i2 = np.where(self.index2 > -1, self.index2 - index_frame, 0)
+            self.index2[i_traj!=cp.roll(i_traj,1)]=-1
+        self.r2 = cp.where(self.index2 > -1, r_traj[self.index2], 0)
+        self.delta_i2 = cp.where(self.index2 > -1, self.index2 - index_frame, 0)
         if t_traj is None:
             self.delta_t=self.delta_i
             self.delta_t2=self.delta_i2
         else:
-            self.delta_t = np.where(self.index > -1, t_traj[self.index] - t_traj[index_frame], 0)
-            self.delta_t2 = np.where(self.index2 > -1, t_traj[self.index2] - t_traj[index_frame], 0)
+            self.delta_t = cp.where(self.index > -1, t_traj[self.index] - t_traj[index_frame], 0)
+            self.delta_t2 = cp.where(self.index2 > -1, t_traj[self.index2] - t_traj[index_frame], 0)
