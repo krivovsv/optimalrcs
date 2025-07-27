@@ -163,7 +163,11 @@ class CommittorNE:
         self.boundary1 = boundary1
         self.b_traj = np.array(boundary0 | boundary1, prec)
         self.i_traj = i_traj
-        self.t_traj = t_traj
+        if i_traj is None:
+            self.i_traj = np.ones_like(self.b_traj, prec)
+        self.t_traj=t_traj
+        if t_traj is None:
+            self.t_traj = np.arange(len(self.b_traj), dtype=prec)
         if seed_r is not None:
             self.r_traj = np.array(seed_r, prec)
         else:
@@ -830,6 +834,9 @@ class MFPTNE(CommittorNE):
         self.boundary0 = boundary0
         self.b_traj = np.array(boundary0, prec)
         self.i_traj = i_traj
+        if i_traj is None:
+                self.i_traj = np.ones_like(self.b_traj, prec)
+        self.t_traj = t_traj
         if t_traj is not None:
             self.t_traj = np.array(t_traj, prec)
         else:
