@@ -1,12 +1,13 @@
-from . import cut_profiles, metrics
-from . import boundaries as bd
 import tensorflow as tf
 import numpy as np
+from . import cut_profiles, metrics
+from . import boundaries as bd
 
 ldt0 = [2**i for i in range(16)]
 
 
-def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$', ln=True, w_traj=None, dtmin=1):
+def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None,
+             ldt=None, xlabel='$q$', ln=True, w_traj=None, dtmin=1):
     if (ldt is None):
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -17,22 +18,22 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
     for dt in ldt:
-        lx, ly = cut_profiles.comp_zc1_irreg(r_traj, b_traj, future_boundary, past_boundary, dt=tf.constant(dt),
-                                       i_traj=i_traj, w_traj=w_traj, dtmin=dtmin)
+        lx, ly = cut_profiles.comp_zc1_irreg(r_traj, b_traj, future_boundary, past_boundary,
+                                dt=tf.constant(dt), i_traj=i_traj, w_traj=w_traj, dtmin=dtmin)
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
         else:
             ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
 
     if ln:
-        ax.set(ylabel='$-\ln Z_{C,1}$', xlabel=xlabel)
+        ax.set(ylabel='$-\\ln Z_{C,1}$', xlabel=xlabel)
     else:
         ax.set(ylabel='$Z_{C,1}$', xlabel=xlabel)
     ax.grid()
 
 
-def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-            w_traj=None, ln=False, force0=False, forcemean0=False):
+def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None,
+            xlabel='$q$', w_traj=None, ln=False, force0=False, forcemean0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -43,20 +44,21 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
     for dt in ldt:
-        lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary,
+                                      dt=tf.constant(dt), w_traj=w_traj)
         if force0 : ly-=ly[0]
         if forcemean0 : ly-=tf.math.reduce_mean(ly[:-1])
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
-            ylabel = '$-\ln Z_q$'
+            ylabel = '$-\\ln Z_q$'
         else:
             ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
             ylabel = '$Z_q$'
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
 
-def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$\\tau$',
-            ln=False, force0=False):
+def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None,
+            ldt=None, xlabel='$\\tau$', ln=False, force0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -71,7 +73,7 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
         if force0 : ly-=ly[0]
         if ln:
             ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
-            ylabel = '$-\ln Z_t$'
+            ylabel = '$-\\ln Z_t$'
         else:
             ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
             ylabel = '$Z_t$'
@@ -104,7 +106,7 @@ def transform_q2qn(r_traj, i_traj=None, t_traj=None, w_traj=None, nbins=10000, d
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, nbins=nbins)
     lzh = lzh * 2
 
-    lx1, lzc1 = cut_profiles.comp_zca(r_traj, a=1, i_traj=i_traj, w_traj=w_traj, nbins=nbins)
+    _, lzc1 = cut_profiles.comp_zca(r_traj, a=1, i_traj=i_traj, w_traj=w_traj, nbins=nbins)
     ld = np.sqrt((lzc1 + 1) / (lzh + 1))
 
     # r2delta_rds = UnivariateSpline(lx, ld, s=0)
@@ -328,7 +330,7 @@ def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=N
             w_traj = np.random.poisson(lam=1, size=len(r_traj))
             w_traj = np.array(w_traj, dtype=r_traj.dtype)
         for dt in ldt:
-            lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
+            _, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
             lz = lz[:-1].numpy()
             m2 = np.mean((lz - np.mean(lz)) ** 2)**0.5
             ldti.append(dt)
@@ -339,7 +341,7 @@ def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=N
             lsd=[]
             
     ax.plot(ldti,lsd,'bx')
-    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
+    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
 
 def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, mseed=10):
     if tf.is_tensor(r_traj):

@@ -1,15 +1,14 @@
 import numpy as np
 import tensorflow as tf
-from . import boundaries, metrics, nonparametrics, plots
 import time
 import matplotlib.pyplot as plt
-
+from . import boundaries, metrics, nonparametrics, plots
 
 envelope_scale = 0.01
 
 
 
-def envelope_sigmoid(r, iter, max_iter):
+def envelope_sigmoid(r, iteration, max_iter):
     """
     Generate a sigmoid envelope function to modulate basis functions during RC optimization.
 
@@ -88,7 +87,7 @@ def basis_poly_ry(r, y, n, fenv=None):
     fk = []
     for iy in range(n + 1):
         fr = tf.identity(f)
-        for ir in range(n + 1 - iy):
+        for _ in range(n + 1 - iy):
             fk.append(fr)
             fr = fr * r
         f = f * y
@@ -148,9 +147,11 @@ class CommittorNE:
         i_traj : array_like of int, optional
             Trajectory index for each frame, used to distinguish between multiple trajectories.
         t_traj : array_like of float, optional
-            Time associated with each frame. Required for time-dependent metrics and history-based optimization.
+            Time associated with each frame. Required for time-dependent metrics and 
+            history-based optimization.
         seed_r : array_like, optional
-            Initial guess for the reaction coordinate time-series. If None, initialized to 0.5 in the interior and 0/1 at boundaries.
+            Initial guess for the reaction coordinate time-series. If None, initialized to 0.5
+            in the interior and 0/1 at boundaries.
         prec : dtype, optional
             Precision used for internal computations (default: np.float64).
 
@@ -183,6 +184,9 @@ class CommittorNE:
         self.iter = 0
         self.p2i0 = None
         self.w_traj = None
+        self.r_traj_old=self.r_traj
+        self.min_delta_zq = 10000
+        self.r_traj_min_sd_zq = self.r_traj
         
     def set_fixed_traj_length_trap(self, trap_boundary, traj_length):
         """
@@ -206,7 +210,7 @@ class CommittorNE:
         None
         """
         self.future_boundary.set_distance_to_end_fixed_traj_length_trap(self.i_traj, trap_boundary, traj_length)
-        
+
     def set_poisson_traj_length_trap(self, trap_boundary, traj_length=None):
         """
         Set a Poisson-distributed trajectory length for segments ending in a trap (absorbing) boundary state.
@@ -227,12 +231,6 @@ class CommittorNE:
         Returns
         -------
         None
-
-        Notes
-        -----
-        This method is useful in scenarios where trajectory lengths are not fixed but follow
-        a stochastic distribution, such as in enhanced sampling or clinical datasets with variable
-        follow-up durations. It supports the construction of consistent validation metrics (e.g., Z_q, Z_tau).
         """
         self.future_boundary.set_distance_to_end_poisson_traj_length_trap(self.i_traj, trap_boundary, traj_length)
 
@@ -260,8 +258,6 @@ class CommittorNE:
         
         Returns:
             None
-        
-        This method iterates over the list of requested metrics, ensuring that each metric is either initialized or appended to the history if not previously recorded. It then computes the specified metric using a mapping from `metrics` and appends the result to the corresponding entry in `self.metrics_history`.
         """
         for metric in metrics_print:
             if metric not in self.metrics_history:
@@ -272,7 +268,7 @@ class CommittorNE:
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
+                      history_delta_t=None, history_type='y(t-d),r(t-d)', history_shift_type='r(t0)',
                       save_min_delta_zq=True, train_mask=None, delta2_r2_max_change_allowed=1e3):
         """
         Optimize the reaction coordinate (RC) to approximate the committor function using a nonparametric,
@@ -312,9 +308,11 @@ class CommittorNE:
         history_delta_t : list of int, optional
             List of time delays used for history-based variations.
         history_type : str or list of str, optional
-            Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)'). Default: ['y(t-d),r(t-d)'].
+            Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)').
+            Default: 'y(t-d),r(t-d)'.
         history_shift_type : str, optional
-            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0'). Default: 'r(t0)'.
+            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0').
+            Default: 'r(t0)'.
         save_min_delta_zq : bool, optional
             If True, save the RC with the smallest observed Z_q deviation (default: True).
         train_mask : array_like, optional
@@ -333,11 +331,9 @@ class CommittorNE:
         It incorporates history-based features to compensate for missing variables and
         uses the Z_q validation criterion to assess RC optimality across time scales.
         """
-        self.r_traj_old = self.r_traj
         self.time_start = time.time()
         if metrics_print is None:
-            metrics_print = ('iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed')
-        self.min_delta_zq = 10000
+            metrics_print = 'iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
             _gamma = tf.constant(gamma, dtype=self.prec)
@@ -346,7 +342,7 @@ class CommittorNE:
         else:
             It=tf.cast(self.i_traj[1:] == self.i_traj[:-1],self.r_traj.dtype)
         delta_r2=tf.reduce_sum(It*tf.square(self.r_traj[1:] - self.r_traj[:-1]))
-        
+
         for self.iter in range(max_iter + 1):
 
            # compute the basis functions
@@ -360,7 +356,7 @@ class CommittorNE:
                 y = tf.cast(comp_y(), self.prec)
                 y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
 
-            
+
             # compute envelope, modulating the basis functions
             if self.iter % 10 == 0 and callable(envelope):
                 _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
@@ -379,7 +375,7 @@ class CommittorNE:
                 #print (delta_r2_new.numpy(),end=' ')
                 self.r_traj=r_traj
                 delta_r2=delta_r2_new
-            
+
 
             # compute and print various metrics
             if self.iter % print_step == 0:
@@ -597,8 +593,9 @@ class CommittorNE:
             for m in self.metrics_history:
                 if m != 'iter':
                     metrics.append(m)
-                if len(m) == 3: break
-        
+                if len(m) == 3:
+                    break
+
         for m, ax in zip(metrics, (ax1,ax2,ax3)):
             n=len(self.metrics_history['iter'])//2
             ax.plot(self.metrics_history['iter'][1:],self.metrics_history[m][1:],':b')
@@ -753,7 +750,7 @@ class CommittorNE:
                 if verbose > 1:
                     print('iteration %i, max(w)=%g, min(w)=%g, |dx|=%g, time=%g'
                            % (i, max_w, min_w, dx, time.time() - start))
-                if min_delta_x != None and dx < min_delta_x: break
+                if min_delta_x is not None and dx < min_delta_x: break
         if verbose == 1:
             print('iteration %i, max(w)=%g, min(w)=%g, |dx|=%g, time=%g' %
                   (i, max_w, min_w, dx, time.time() - start))
@@ -836,7 +833,7 @@ class MFPTNE(CommittorNE):
         self.b_traj = np.asarray(boundary0, prec)
         self.i_traj = i_traj
         if i_traj is None:
-                self.i_traj = np.ones_like(self.b_traj, prec)
+            self.i_traj = np.ones_like(self.b_traj, prec)
         self.t_traj = t_traj
         if t_traj is not None:
             self.t_traj = np.asarray(t_traj, prec)
@@ -856,12 +853,15 @@ class MFPTNE(CommittorNE):
         self.iter = 0
         self.p2i0 = None
         self.w_traj = None
+        self.r_traj_old=self.r_traj
+        self.min_delta_zt=10000
+        self.r_traj_min_sd_zt = self.r_traj
 
     def fit_transform(self, comp_y,
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
+                      history_delta_t=None, history_type='y(t-d),r(t-d)', history_shift_type='r(t0)',
                       save_min_delta_zt=True, train_mask=None):
         """
         Optimize the reaction coordinate (RC) to approximate the mean first passage time (MFPT)
@@ -896,7 +896,7 @@ class MFPTNE(CommittorNE):
             List of time delays to sample from when incorporating history.
         history_type : str or list of str, optional
             Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)').
-            Default: ['y(t-d),r(t-d)']
+            Default: 'y(t-d),r(t-d)'
         history_shift_type : str, optional
             Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0').
             Default: 'r(t0)'
@@ -916,11 +916,9 @@ class MFPTNE(CommittorNE):
         It supports history-based features and uses the Z_tau criterion to validate RC
         optimality across time scales.
         """
-        self.r_traj_old = self.r_traj
         self.time_start = time.time()
         if metrics_print is None:
-            metrics_print = ('iter', 'imfpt', 'max_sd_zt', 'max_grad_zt', 'delta_x', 'time_elapsed')
-        min_delta_zt = 1000
+            metrics_print = 'iter', 'imfpt', 'max_sd_zt', 'max_grad_zt', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
             _gamma = tf.constant(gamma, dtype=self.prec)
@@ -961,11 +959,11 @@ class MFPTNE(CommittorNE):
                 if self.iter > 0:
                     if save_min_delta_zt:
                         if self.metrics_history['max_sd_zt'][-1] < min_delta_zt:
-                            min_delta_t = self.metrics_history['max_sd_zt'][-1]
+                            min_delta_zt = self.metrics_history['max_sd_zt'][-1]
                             self.r_traj_min_sd_zt = self.r_traj
                     if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
                         break
-                    
+
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False, xlabel='$\\tau$', force0=False):
         """
         Visualize free energy profiles and the Z_tau validation criterion for the MFPT-based reaction coordinate (RC).
@@ -1142,11 +1140,9 @@ class Committor(CommittorNE):
         -----
         This method assumes the input trajectory satisfies detailed balance (i.e., equilibrium).
         """
-        self.r_traj_old = self.r_traj
         self.time_start = time.time()
         if metrics_print is None:
-            metrics_print = ('iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed')
-        self.min_delta_zq = 10000
+            metrics_print = 'iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
             _gamma = tf.constant(gamma, dtype=self.prec)
@@ -1155,7 +1151,7 @@ class Committor(CommittorNE):
         else:
             It=tf.cast(self.i_traj[1:] == self.i_traj[:-1],self.r_traj.dtype)
         delta_r2=tf.reduce_sum(It*tf.square(self.r_traj[1:] - self.r_traj[:-1]))
-        
+
         for self.iter in range(max_iter + 1):
 
             # compute next CV y, and cast it to the required accuracy
@@ -1178,7 +1174,7 @@ class Committor(CommittorNE):
             if delta_r2_new-delta_r2<delta2_r2_min:
                 self.r_traj=r_traj
                 delta_r2=delta_r2_new
-            
+
 
             # compute and print various metrics
             if self.iter % print_step == 0:
@@ -1194,7 +1190,7 @@ class Committor(CommittorNE):
                         break
                     if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
                         break
-                        
+
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, dtmin=1):
         """
         Plot free energy profiles and the validation criterion Z_q for the current RC.
@@ -1237,5 +1233,4 @@ class Committor(CommittorNE):
         plots.plot_zq(ax3, r_traj, self.b_traj, self.i_traj, self.future_boundary, self.past_boundary, ldt=ldt)
         fig.tight_layout()
         plt.show()
-
         
