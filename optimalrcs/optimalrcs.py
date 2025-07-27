@@ -941,7 +941,7 @@ class MFPTNE(CommittorNE):
                 y1, y2 = self.r_traj, tf.cast(comp_y(), self.prec)
             else:
                 y = tf.cast(comp_y(), self.prec)
-                y1, y2 = self.history_select_y1y2(y, delta_t, history_type, history_shift_type)
+                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
 
             fk = basis_functions(y1, y2, ny, _envelope)
 
