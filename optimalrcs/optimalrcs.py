@@ -96,7 +96,39 @@ def basis_poly_ry(r, y, n, fenv=None):
 
 class CommittorNE:
     """
-    Class for estimating committors from nonequilbrium smapling using nonparametric approach.
+    Nonparametric estimator of the committor function from non-equilibrium trajectory data.
+
+    This class implements a flexible framework for optimizing a reaction coordinate (RC)
+    that approximates the committor function — the probability that a system starting
+    from a given configuration will reach boundary state B before A.
+
+    The method supports irregular, incomplete, or non-equilibrium trajectory data and
+    uses a nonparametric basis expansion in collective variables (CVs), optionally
+    incorporating trajectory history. It is based on the framework described in
+    Banushkina & Krivov (2025), which introduces a rigorous validation criterion (Z_q)
+    and supports both equilibrium and non-equilibrium settings.
+
+    The class provides tools for:
+    - initializing and updating the RC,
+    - computing and tracking optimization metrics,
+    - incorporating history-based variations,
+    - visualizing free energy profiles and validation plots.
+
+    Examples
+    -------- without histories ------
+    >>> def comp_y():  return csdih[:,np.random.randint(csdih.shape[1])]
+    >>> q=optimalrcs.CommittorNE(boundary0=rmsd>10.5, boundary1=rmsd<1.0)
+    >>> q.fit_transform(comp_y)
+    >>> q.plots_feps()
+    >>> q.plots_obs_pred()
+    
+    ------- with histories ----------
+    >>> def comp_y():  return csdih[:,np.random.randint(csdih.shape[1])]
+    >>> history=list(range(11))
+    >>> q=optimalrcs.CommittorNE(boundary0=rmsd>10.5,boundary1=rmsd<1.0)
+    >>> q.fit_transform(comp_y, history_delta_t=history, gamma=0.2)
+    >>> q.plots_feps()
+    >>> q.plots_obs_pred()
     """
     def __init__(self, boundary0, boundary1, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
         """
@@ -149,32 +181,57 @@ class CommittorNE:
         
     def set_fixed_traj_length_trap(self, trap_boundary, traj_length):
         """
-        This method sets a fixed trajectory length for trajectory segments ending in a trap state.
-        
-        Parameters:
-            trap_boundary (int): The index of the boundary where the trajectory starts being trapped.
-            traj_length (int): The desired length of the trajectory segment, should be similar to other, nontrapped segments
-        
-        Returns:
-            None
+        Set a fixed trajectory length for segments that terminate in a trap (absorbing) boundary state.
+
+        This method modifies the internal representation of future boundary distances by enforcing
+        a fixed trajectory length for all segments that end in a specified trap state. This is useful
+        for constructing consistent trajectory segments in non-equilibrium settings, particularly
+        when computing validation metrics such as Z_q or Z_tau.
+
+        Parameters
+        ----------
+        trap_boundary : int
+            Index of the absorbing boundary (e.g., state A or B) where trajectories are considered trapped.
+        traj_length : int
+            Desired fixed length of the trajectory segment. Should be comparable to the length of
+            non-trapped segments to ensure balanced statistics.
+
+        Returns
+        -------
+        None
         """
         self.future_boundary.set_distance_to_end_fixed_traj_length_trap(self.i_traj, trap_boundary, traj_length)
         
     def set_poisson_traj_length_trap(self, trap_boundary, traj_length=None):
         """
-        This method sets a Poisson distribut trajectory length for trajectory segments ending in a trap state. 
-        
-        Parameters:
-            trap_boundary (int): The index of the absorbing boundary.
-            traj_length (int, optional): The desired length of the trajectory should be similar to other, nontrapped segments.
-            If None, it will be determined by the Poisson distribution.
-            
-        Returns:
-            None
+        Set a Poisson-distributed trajectory length for segments ending in a trap (absorbing) boundary state.
+
+        This method modifies the internal representation of trajectory segment lengths by assigning
+        a stochastic length drawn from a Poisson distribution. It is used for segments that terminate
+        at a specified absorbing boundary, allowing for more realistic modeling of variable-length
+        trajectories in non-equilibrium systems.
+
+        Parameters
+        ----------
+        trap_boundary : int
+            Index of the absorbing boundary (e.g., state A or B) where trajectories are considered trapped.
+        traj_length : int, optional
+            Mean of the Poisson distribution used to sample trajectory lengths. If None, a default
+            value is inferred from the data.
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        This method is useful in scenarios where trajectory lengths are not fixed but follow
+        a stochastic distribution, such as in enhanced sampling or clinical datasets with variable
+        follow-up durations. It supports the construction of consistent validation metrics (e.g., Z_q, Z_tau).
         """
         self.future_boundary.set_distance_to_end_poisson_traj_length_trap(self.i_traj, trap_boundary, traj_length)
 
-    def print_metrics(self, metrics_print):
+    def _print_metrics(self, metrics_print):
         """
         Print selected metrics.
         
@@ -189,7 +246,7 @@ class CommittorNE:
             s += '%s=%g, ' % (metrics.metrics_short_name[metric], self.metrics_history[metric][-1])
         print(s[:-2])
 
-    def compute_metrics(self, metrics_print):
+    def _compute_metrics(self, metrics_print):
         """
         Compute and store specified metrics.
         
@@ -210,23 +267,29 @@ class CommittorNE:
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=None, history_shift_type=None,
+                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
                       save_min_delta_zq=True, train_mask=None, delta2_r2_max_change_allowed=1e3):
         """
-        Perform nonparametric optimization of the reaction coordinate (RC) to approximate the committor.
+        Optimize the reaction coordinate (RC) to approximate the committor function using a nonparametric,
+        history-aware basis expansion.
 
-        This method iteratively updates the RC time-series using a basis expansion in collective variables (CVs),
-        optionally incorporating trajectory history. The optimization minimizes non-Markovian effects and
-        improves kinetic consistency, aiming to converge toward the committor function.
+        This method performs iterative updates to the RC time-series `r(t)` using polynomial basis functions
+        in collective variables `y(t)` and optionally their historical values. The optimization aims to
+        minimize non-Markovian effects and converge toward the committor — the probability of reaching
+        state B before A — as described in Banushkina & Krivov (2025).
+
+        The optimization tracks convergence using rigorous metrics such as Z_q, cross-entropy, and AUC.
+        It supports adaptive envelope modulation, regularization, and history-based variations to improve
+        robustness and generalization, especially in systems with incomplete or irregular data.
 
         Parameters
         ----------
         comp_y : callable
-            Function that returns a randomly selected collective variable (CV) time-series y(t).
+            Function returning a randomly selected collective variable (CV) time-series y(t).
         envelope : callable, optional
-            Envelope function used to localize optimization in RC space (default: `envelope_sigmoid`).
+            Envelope function to localize optimization in RC space (default: `envelope_sigmoid`).
         gamma : float or callable, optional
-            Regularization strength or a function returning gamma per iteration (default: 0).
+            Regularization strength or a callable returning gamma per iteration (default: 0).
         basis_functions : callable, optional
             Function to generate basis functions from r(t) and y(t) (default: `basis_poly_ry`).
         ny : int, optional
@@ -236,34 +299,34 @@ class CommittorNE:
         min_delta_x : float, optional
             Stop criterion: minimum change in RC between print_step iterations.
         min_delta_r2 : float, optional
-            Stop criterion: minimum value of delta_r^2 functional.
+            Stop criterion: minimum value of the delta_r^2 functional.
         print_step : int, optional
-            Frequency of metric printing and logging (default: 1000).
+            Frequency of metric logging and printing (default: 1000).
         metrics_print : tuple of str, optional
             Names of metrics to compute and print during optimization.
         history_delta_t : list of int, optional
-            List of time delays to sample from when incorporating history.
+            List of time delays used for history-based variations.
         history_type : str or list of str, optional
-            Type(s) of history-based variation to apply (e.g., 'y(t-d),r(t-d)').
+            Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)'). Default: ['y(t-d),r(t-d)'].
         history_shift_type : str, optional
-            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', or '0').
+            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0'). Default: 'r(t0)'.
         save_min_delta_zq : bool, optional
             If True, save the RC with the smallest observed Z_q deviation (default: True).
         train_mask : array_like, optional
-            Boolean mask indicating which frames to include in training. # not implemented
+            Boolean mask indicating which frames to include in training (not implemented).
         delta2_r2_max_change_allowed : float, optional
-            Maximum change for accepting a new RC update based on change in delta_r^2 (default: 1e3).
+            Maximum allowed change in delta_r^2 for accepting RC updates (default: 1e3).
 
         Returns
         -------
         None
-            Updates `self.r_traj` in place and logs metrics in `self.metrics_history`.
+        Updates `self.r_traj` in place and logs metrics in `self.metrics_history`.
 
         Notes
         -----
-        The optimization proceeds by constructing variations of the RC using basis functions
-        of the form f(r(t), y(t)) or f(r(t-d), y(t-d)), depending on the history settings.
-        Metrics such as cross-entropy, AUC, and Z_q are tracked to assess convergence and quality.
+        This method supports both equilibrium and non-equilibrium trajectory ensembles.
+        It incorporates history-based features to compensate for missing variables and
+        uses the Z_q validation criterion to assess RC optimality across time scales.
         """
         self.r_traj_old = self.r_traj
         self.time_start = time.time()
@@ -290,7 +353,7 @@ class CommittorNE:
                 y1, y2 = self.r_traj, tf.cast(comp_y(), self.prec)
             else:
                 y = tf.cast(comp_y(), self.prec)
-                y1, y2 = self.history_select_y1y2(y, delta_t, history_type, history_shift_type)
+                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
 
             
             # compute envelope, modulating the basis functions
@@ -315,8 +378,8 @@ class CommittorNE:
 
             # compute and print various metrics
             if self.iter % print_step == 0:
-                self.compute_metrics(metrics_print)
-                self.print_metrics(metrics_print)
+                self._compute_metrics(metrics_print)
+                self._print_metrics(metrics_print)
                 self.r_traj_old = self.r_traj
                 if self.iter > 0:
                     if save_min_delta_zq:
@@ -328,7 +391,47 @@ class CommittorNE:
                     if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
                         break
 
-    def history_select_y1y2(self, y, d, history_type, history_shift_type):
+    def _history_select_y1y2(self, y, d, history_type, history_shift_type):
+        """
+        Select a pair of collective variable (CV) time-series (y1, y2) for use in history-based
+        basis function construction during RC optimization.
+
+        This method implements logic for incorporating trajectory history into the optimization
+        by selecting delayed versions of the CV and/or the reaction coordinate. It supports
+        multiple history types and handles trajectory boundaries using configurable shift strategies.
+
+        Parameters
+        ----------
+        y : tf.Tensor
+            Current collective variable time-series.
+        d : int
+            Time delay (in frames) to apply for history-based selection.
+        history_type : str or list of str
+            Type(s) of history-based variation to apply. Examples:
+            - 'y(t-d),r(t-d)'
+            - 'y(t-d),y(t)'
+            - 'r(t-d),y(t)'
+        history_shift_type : str
+            Strategy for handling trajectory boundaries when applying delays:
+            - 'r(t0)' : use the first frame of the trajectory.
+            - 'r(t)'  : use the current frame.
+            - '0'     : use zero padding.
+            - 'r(t-d)': allow cross-boundary shifts.
+
+        Returns
+        -------
+        y1 : tf.Tensor
+            First variable for basis construction (e.g., delayed y or r).
+        y2 : tf.Tensor
+            Second variable for basis construction (e.g., current y or r).
+
+        Notes
+        -----
+        This method enables the use of time-delayed features in the basis expansion,
+        which improves expressivity and compensates for missing variables. It is
+        conceptually related to Takens' embedding theorem and is central to the
+        nonparametric optimization framework described in Banushkina & Krivov (2025).
+        """
         if d > 0:
             if history_type is None:
                 history_type = 'y(t-d),r(t-d)'
@@ -353,6 +456,45 @@ class CommittorNE:
         return y1, y2
 
     def _history_select_y(self, y, d, history_type, history_shift_type):
+        """
+        Internal method to select delayed variables for history-based basis construction.
+
+        This method is used when the history type is not one of the predefined simple cases
+        (e.g., 'y(t-d),r(t-d)'). It supports a wide range of history-based variations by
+        interpreting symbolic descriptors such as 'r(t-d)', 'y(t-d)', 'lndt', and 'dt'.
+
+        It also handles trajectory boundary conditions using a configurable shift strategy,
+        ensuring that delayed values are consistent across trajectory segments.
+
+        Parameters
+        ----------
+        y : tf.Tensor
+            Collective variable time-series.
+        d : int
+            Time delay (in frames).
+        history_type : str
+            Descriptor of the history-based variation (e.g., 'y(t-d),r(t-d)', 'lndt,dt').
+        history_shift_type : str
+            Strategy for handling trajectory boundaries. Options include:
+            - 'r(t-d)' : allow cross-boundary shifts.
+            - 'r(t)'   : use current value if delayed value crosses boundary.
+            - 'r(t0)'  : use first frame of trajectory.
+            - '0'      : use zero padding.
+
+        Returns
+        -------
+        y1 : tf.Tensor
+            First variable for basis construction (e.g., delayed y or r).
+        y2 : tf.Tensor
+            Second variable for basis construction (e.g., delayed r or y).
+
+        Notes
+        -----
+        This method enables flexible incorporation of trajectory history into the RC optimization,
+        supporting advanced variations such as time-to-boundary ('dt') and log-time ('lndt').
+        It is central to the expressivity of the nonparametric framework described in
+        Banushkina & Krivov (2025).
+        """
         if history_shift_type is None:
             history_shift_type = 'r(t0)'
         if history_type is None:
@@ -410,26 +552,39 @@ class CommittorNE:
 
     def plots_metrics(self, metrics=None):
         """
-        Plots various metrics during the optimization process for a non-equilibrium committor computation.
-        
-        Parameters:
-            self : The instance of the CommittorNE class containing the computed metrics.
-            metrics (list) : A list of metric names to plot. If None, default metrics are used.
-        
-        Returns:
-            fig : The figure object containing the subplots for the plotted metrics.
-            ax1, ax2, ax3 : The axes objects corresponding to different plots.
-        
-        Raises:
-            ValueError : If an invalid metric name is provided in the metrics list.
-        
-        Examples:
-            To plot default metrics during the optimization process::
-                committor_ne.plots_metrics()
-        
-            To specify a custom set of metrics to plot::
-                custom_metrics = ['metric1', 'metric2']
-                committor_ne.plots_metrics(custom_metrics)
+        Plot selected optimization metrics to visualize convergence and RC quality.
+
+        This method generates side-by-side plots of metrics tracked during the nonparametric
+        optimization of the reaction coordinate (RC). It is useful for diagnosing convergence,
+        detecting overfitting, and assessing the stability of the RC across iterations.
+
+        Parameters
+        ----------
+        metrics : list of str, optional
+            List of metric names to plot. If None, all available first 3 metrics are plotted.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object containing the subplots.
+        ax1, ax2, ax3 : matplotlib.axes.Axes
+            The axes objects corresponding to the plotted metrics.
+
+      
+        Examples
+        --------
+        >>> committor_ne.plots_metrics()
+        >>> committor_ne.plots_metrics(['cross_entropy', 'delta_r2'])
+
+        Notes
+        -----
+        This visualization complements the Z_q validation criterion and helps interpret
+        the behavior of metrics such as:
+        - 'cross_entropy': classification loss.
+        - 'delta_r2': RC smoothness.
+        - 'max_sd_zq': deviation from optimality.
+
+        The dual-axis plotting scheme highlights early and late-stage optimization behavior.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
         if metrics is None:
@@ -501,11 +656,17 @@ class CommittorNE:
 
     def plots_obs_pred(self, r_traj=None, log_scale=False, log_scale_pmin=None):
         """
-        Plot predicted vs. observed committor values and ROC curve for RC validation.
+        Visualize predicted vs. observed committor values and ROC curve to assess RC quality.
 
-        This method visualizes the quality of the current reaction coordinate (RC)
-        by comparing predicted committor values against observed outcomes and
-        computing the receiver operating characteristic (ROC) curve.
+        This method generates three plots to evaluate the discriminative and predictive
+        power of the current reaction coordinate (RC):
+        1. Predicted vs. observed committor values, binned along the RC.
+        2. Histogram of trajectory segments reaching boundary states from each RC bin.
+        3. ROC curve measuring the ability of the RC to separate boundary states A and B.
+
+        These plots are used to validate whether the RC approximates the committor function,
+        as described in Banushkina & Krivov (2025). They complement the Z_q validation criterion
+        by providing intuitive visual diagnostics.
 
         Parameters
         ----------
@@ -519,15 +680,12 @@ class CommittorNE:
         Returns
         -------
         None
-            Displays the plots using matplotlib.
+        Displays the plots using matplotlib.
 
         Notes
         -----
-        
-        The three subplots are:
-        1. Predicted vs. observed committor values, binned along the RC.
-        2. Histogram showing the number of trajectory segments from each RC bin that reach either boundary.
-        3. ROC curve evaluating the discriminative power of the RC in separating boundary states.
+        These plots are most informative when trajectories reach both boundary states.
+        In sparse or irregular datasets, Z_q may provide a more robust validation.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -598,20 +756,49 @@ class CommittorNE:
 
 class MFPTNE(CommittorNE):
     """
-    A class to compute the mean first passage time (MFPT) optimal RC.
+    Nonparametric estimator of the optimal reaction coordinate (RC) based on mean first passage time (MFPT).
+
+    This class implements a framework for optimizing an RC that approximates the MFPT to a specified
+    boundary. Unlike the committor, which requires two boundary states, MFPT-based RCs
+    require only one.
+
+    The optimization is performed using a nonparametric basis expansion in collective variables (CVs),
+    optionally incorporating trajectory history. The method supports irregular, low-dimensional,
+    or non-equilibrium datasets and is validated using the Z_tau criterion, as introduced in
+    Banushkina & Krivov (2025).
+
+    It inherits from `CommittorNE` and reuses its infrastructure for trajectory handling,
+    metric tracking, and visualization.
+    
+    Examples
+    -------- without histories ------
+    >>> def comp_y(): return rmsd
+    >>> mfpt=optimalrcs.MFPTNE(boundary0 = rmsd < 1.0)
+    >>> mfpt.fit_transform(comp_y)
+    >>> mfpt.plots_feps()
+    >>> mfpt.plots_obs_pred()
+    
+    ------- with histories ----------
+    >>> def comp_y(): return rmsd
+    >>> history = [0,] + [2**i for i in range(9)]
+    >>> mfpt=optimalrcs.MFPTNE(boundary0 = rmsd < 1.0)
+    >>> mfpt.fit_transform(comp_y, history_delta_t = history, gamma = 0.1)
+    >>> mfpt.plots_feps()
+    >>> mfpt.plots_obs_pred()
     """
     def __init__(self, boundary0, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
         """
         Initialize the MFPTNE class for non-equilibrium mean first passage time (MFPT) optimization.
 
         This class estimates a reaction coordinate (RC) that approximates the mean first passage time
-        (MFPT) to a specified absorbing boundary (state A). It is particularly useful when only one
+        (MFPT) to a specified boundary (state A). It is particularly useful when only one
         boundary condition is defined, and is applicable to low-dimensional or irregular datasets.
+        The RC is initialized to 1.0 in the interior and 0.0 at the boundary.
 
         Parameters
         ----------
         boundary0 : array_like
-            Boolean array indicating frames belonging to the absorbing boundary (MFPT = 0).
+            Boolean array indicating frames belonging to the boundary (MFPT = 0).
         i_traj : array_like of int, optional
             Trajectory index for each frame, used to distinguish between multiple trajectories.
         t_traj : array_like of float, optional
@@ -626,7 +813,7 @@ class MFPTNE(CommittorNE):
         r_traj : ndarray
             Current estimate of the MFPT-based reaction coordinate.
         b_traj : ndarray
-            Boolean array indicating the absorbing boundary.
+            Boolean array indicating the boundary.
         future_boundary : boundaries.FutureBoundary
             Helper object for computing future-based MFPT metrics and validation.
         past_boundary : boundaries.PastBoundary
@@ -666,15 +853,16 @@ class MFPTNE(CommittorNE):
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=None, history_shift_type=None,
+                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
                       save_min_delta_zt=True, train_mask=None):
         """
-        Perform nonparametric optimization of the reaction coordinate to approximate the MFPT.
+        Optimize the reaction coordinate (RC) to approximate the mean first passage time (MFPT)
+        to a specified boundary using nonparametric, history-aware basis expansion.
 
-        This method iteratively updates the reaction coordinate (RC) to approximate the
-        mean first passage time (MFPT) to a specified absorbing boundary. The optimization
-        uses a basis expansion in collective variables (CVs), optionally incorporating
-        trajectory history, and tracks convergence using MFPT-specific metrics.
+        This method performs iterative updates to the RC time-series `r(t)` using polynomial
+        basis functions in collective variables `y(t)` and optionally their historical values.
+        The optimization targets the MFPT functional, which quantifies the expected time to
+        reach a designated boundary from each configuration.
 
         Parameters
         ----------
@@ -699,9 +887,11 @@ class MFPTNE(CommittorNE):
         history_delta_t : list of int, optional
             List of time delays to sample from when incorporating history.
         history_type : str or list of str, optional
-            Type(s) of history-based variation to apply (e.g., 'y(t-d),r(t-d)').
+            Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)').
+            Default: ['y(t-d),r(t-d)']
         history_shift_type : str, optional
-            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', or '0').
+            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0').
+            Default: 'r(t0)'
         save_min_delta_zt : bool, optional
             If True, save the RC with the smallest observed Z_tau deviation (default: True).
         train_mask : array_like, optional
@@ -710,14 +900,13 @@ class MFPTNE(CommittorNE):
         Returns
         -------
         None
-            Updates `self.r_traj` in place and logs metrics in `self.metrics_history`.
+        Updates `self.r_traj` in place and logs metrics in `self.metrics_history`.
 
         Notes
-        -----
-        
-        The optimization proceeds by constructing variations of the RC using basis functions
-        of the form f(r(t), y(t)) or f(r(t-d), y(t-d)), depending on the history settings. The
-        Z_tau validation criterion is used to assess convergence and optimality.
+        -----       
+        This method is ideal for systems where a single boundary state is defined,
+        It supports history-based features and uses the Z_tau criterion to validate RC
+        optimality across time scales.
         """
         self.r_traj_old = self.r_traj
         self.time_start = time.time()
@@ -771,12 +960,16 @@ class MFPTNE(CommittorNE):
                     
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False, xlabel='$\\tau$', force0=False):
         """
-        Plot free energy profiles and the validation criterion Z_tau for the MFPT-based RC.
+        Visualize free energy profiles and the Z_tau validation criterion for the MFPT-based reaction coordinate (RC).
 
-        This method generates three side-by-side plots:
-        1. Free energy profile (FEP) as a function of the MFPT-based reaction coordinate.
-        2. FEP along the natural coordinate where the diffusion coefficient is constant.
-        3. Validation criterion Z_tau across lag times, used to assess RC optimality.
+        This method generates three diagnostic plots to assess the quality of the RC:
+        1. Free energy profile (FEP) as a function of the MFPT-based RC.
+        2. FEP along the natural coordinate, where the diffusion coefficient is constant.
+        3. Z_tau validation criterion across lag times, used to evaluate RC optimality.
+
+        These plots help determine whether the RC approximates the MFPT and whether the
+        projected dynamics are Markovian. The Z_tau criterion, introduced in Banushkina & Krivov (2025),
+        is used to assess the time-scale independence of the RC.
 
         Parameters
         ----------
@@ -789,21 +982,22 @@ class MFPTNE(CommittorNE):
         reweight : bool, optional
             If True, apply equilibrium reweighting using `self.w_traj`.
         xlabel : str, optional
-            Label for the x-axis in all plots (default: '$\\tau$').
+            Label for the x-axis in all plots (default: '$\\\\tau$').
         force0 : bool, optional
             If True, force Z_tau to be zero at the start (default: False).
 
         Returns
         -------
         None
-            Displays the plots using matplotlib.
+        Displays the plots using matplotlib.
 
         Notes
         -----
         The natural coordinate transformation rescales the RC such that the diffusion
         coefficient becomes constant, improving interpretability of the FEP.
-        The Z_tau plot is used to validate whether the RC closely approximates the MFPT,
-        with constancy across lag times indicating optimality.
+
+        The Z_tau plot is a key validation tool for MFPT-based RCs. Constancy of Z_tau
+        across lag times indicates that the RC captures the essential kinetics of the system.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -829,7 +1023,7 @@ class MFPTNE(CommittorNE):
 
         This method visualizes the quality of the MFPT-based reaction coordinate (RC)
         by comparing predicted MFPT values against observed outcomes. It also includes
-        a histogram showing how many trajectory segments from each RC bin reach the absorbing boundary.
+        a histogram showing how many trajectory segments from each RC bin reach the boundary.
 
         Parameters
         ----------
@@ -852,8 +1046,12 @@ class MFPTNE(CommittorNE):
         2. Histogram showing the number of trajectory segments from each RC bin that reach the absorbing boundary.
         3. (Optional) ROC curve — currently disabled in this implementation.
 
-        The middle plot is particularly useful for assessing sampling quality and identifying
-        underrepresented regions in the RC space.
+        However, for this plot to be informative,
+        the number of discarded segments — i.e., those that do not reach the boundary —
+        should be small. Otherwise, the observed statistics may be biased or misleading.
+        
+        These plots complement the Z_τ validation criterion introduced in Banushkina & Krivov (2025),
+        which assesses whether the RC captures the essential kinetics of the system across time scales.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -866,34 +1064,75 @@ class MFPTNE(CommittorNE):
 
 class Committor(CommittorNE):
     """
-    Class to compute committors for equilibrium trajectory.
+    Nonparametric estimator of the committor function for equilibrium trajectory data.
+
+    The input trajectory is assumed to be sampled from an equilibrium distribution,
+    meaning it satisfies detailed balance: the probability flux between any two states
+    is symmetric in time. This assumption enables the use of equilibrium-specific 
+    optimization functional and validation criteria and simplifies the interpretation
+    of the reaction coordinate (RC).
+
+    Examples
+    --------
+    >>> def comp_y(): return csdih[:, np.random.randint(csdih.shape[1])]
+    >>> q = optimalrcs.Committor(boundary0 = rmsd > 10.5, boundary1 = rmsd < 1.0)
+    >>> q.fit_transform(comp_y)
+    >>> q.plots_feps()
+    >>> q.plots_obs_pred()
     """
     def fit_transform(self, comp_y,
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
-                      print_step=1000, metrics_print=None, stable=False,
-                      save_min_delta_zq=True, train_mask=None, delta2_r2_min=10):
+                      print_step=1000, metrics_print=None,
+                      save_min_delta_zq=True, train_mask=None, delta2_r2_min=10):        
         """
-        Fits and transforms the committor based on the provided parameters.
-        
-        Parameters:
-            comp_y (function): Function to compute the target variable y.
-            envelope (callable or float, optional): Envelope function or gamma value for non-parametric transformations. Defaults to envelope_sigmoid.
-            gamma (int or callable, optional): Gamma parameter for basis functions. Can be an integer or a callable function. Defaults to 0.
-            basis_functions (callable, optional): Function to compute the basis functions. Defaults to basis_poly_ry.
-            ny (int, optional): Number of basis functions. Defaults to 6.
-            max_iter (int, optional): Maximum number of iterations. Defaults to 100000.
-            min_delta_x (float, optional): Minimum delta x for stopping criteria.
-            min_delta_r2 (float, optional): Minimum delta r2 for stopping criteria.
-            print_step (int, optional): Frequency of printing metrics. Defaults to 1000.
-            metrics_print (tuple or str, optional): Metrics to be printed. Can be a tuple of metric names or 'all' for all available metrics.
-            stable (bool, optional): Whether to stop when the model is stable. Defaults to False.
-            save_min_delta_zq (bool, optional): Whether to save the minimum delta zq. Defaults to True.
-            train_mask (tf.Tensor, optional): Mask for training data.
-            delta2_r2_min (float, optional): Minimum delta r2 for stopping criteria. Defaults to 10.
-        
-        Returns:
-            self: The fitted committor model.
+        Optimize the reaction coordinate (RC) to approximate the committor function
+        for equilibrium dynamics using nonparametric approach.
+
+        This method performs iterative updates to the RC time-series `r(t)` using polynomial
+        basis functions in collective variables `y(t)`. The optimization aims to converge
+        toward the committor — the probability of reaching state B before A — which is
+        the optimal RC for systems in thermodynamic equilibrium.
+
+        The optimization is validated using the Z_c,1 criterion. A constant Z_c,1 profile
+        across lag times indicates that the RC closely approximates the committor.
+
+        Parameters
+        ----------
+        comp_y : callable
+            Function returning a randomly selected collective variable (CV) time-series y(t).
+        envelope : callable or float, optional
+            Envelope function to localize optimization in RC space (default: `envelope_sigmoid`).
+        gamma : float or callable, optional
+            Regularization strength or a callable returning gamma per iteration (default: 0).
+        basis_functions : callable, optional
+            Function to generate basis functions from r(t) and y(t) (default: `basis_poly_ry`).
+        ny : int, optional
+            Maximum polynomial degree for basis functions (default: 6).
+        max_iter : int, optional
+            Maximum number of optimization iterations (default: 100000).
+        min_delta_x : float, optional
+            Stop criterion: minimum change in RC between print_step iterations.
+        min_delta_r2 : float, optional
+            Stop criterion: minimum value of the delta_r^2 functional.
+        print_step : int, optional
+            Frequency of metric logging and printing (default: 1000).
+        metrics_print : tuple of str, optional
+            Names of metrics to compute and print during optimization.
+        save_min_delta_zq : bool, optional
+            If True, save the RC with the smallest observed Z_c,1 deviation (default: True).
+        train_mask : array_like, optional
+            Boolean mask indicating which frames to include in training (not implemented).
+        delta2_r2_min : float, optional
+            Minimum allowed change in delta_r^2 for accepting RC updates (default: 10).
+        Returns
+        -------
+        self : Committor
+            The fitted committor model with updated `r_traj`.
+
+        Notes
+        -----
+        This method assumes the input trajectory satisfies detailed balance (i.e., equilibrium).
         """
         self.r_traj_old = self.r_traj
         self.time_start = time.time()
@@ -947,7 +1186,6 @@ class Committor(CommittorNE):
                         break
                     if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
                         break
-
                         
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, dtmin=1):
         """
