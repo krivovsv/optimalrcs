@@ -958,8 +958,8 @@ class MFPTNE(CommittorNE):
                 self.r_traj_old = self.r_traj
                 if self.iter > 0:
                     if save_min_delta_zt:
-                        if self.metrics_history['max_sd_zt'][-1] < min_delta_zt:
-                            min_delta_zt = self.metrics_history['max_sd_zt'][-1]
+                        if self.metrics_history['max_sd_zt'][-1] < self.min_delta_zt:
+                            self.min_delta_zt = self.metrics_history['max_sd_zt'][-1]
                             self.r_traj_min_sd_zt = self.r_traj
                     if min_delta_x is not None and self.metrics_history['delta_x'][-1] < min_delta_x:
                         break
