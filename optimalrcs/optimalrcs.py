@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 envelope_scale = 0.01
 
 
+
 def envelope_sigmoid(r, iter, max_iter):
     """
     Generate a sigmoid envelope function to modulate basis functions during RC optimization.
@@ -161,7 +162,7 @@ class CommittorNE:
         """
         self.boundary0 = boundary0
         self.boundary1 = boundary1
-        self.b_traj = np.array(boundary0 | boundary1, prec)
+        self.b_traj = np.asarray(boundary0 | boundary1, prec)
         self.i_traj = i_traj
         if i_traj is None:
             self.i_traj = np.ones_like(self.b_traj, prec)
@@ -169,7 +170,7 @@ class CommittorNE:
         if t_traj is None:
             self.t_traj = np.arange(len(self.b_traj), dtype=prec)
         if seed_r is not None:
-            self.r_traj = np.array(seed_r, prec)
+            self.r_traj = np.asarray(seed_r, prec)
         else:
             self.r_traj = np.ones_like(self.boundary0, prec) / 2
             self.r_traj[self.boundary0] = 0
@@ -832,17 +833,17 @@ class MFPTNE(CommittorNE):
             Optional weights for reweighting non-equilibrium trajectories to equilibrium.
         """
         self.boundary0 = boundary0
-        self.b_traj = np.array(boundary0, prec)
+        self.b_traj = np.asarray(boundary0, prec)
         self.i_traj = i_traj
         if i_traj is None:
                 self.i_traj = np.ones_like(self.b_traj, prec)
         self.t_traj = t_traj
         if t_traj is not None:
-            self.t_traj = np.array(t_traj, prec)
+            self.t_traj = np.asarray(t_traj, prec)
         else:
             self.t_traj = np.arange(len(self.b_traj), dtype=prec)
         if seed_r is not None:
-            self.r_traj = np.array(seed_r, prec)
+            self.r_traj = np.asarray(seed_r, prec)
         else:
             self.r_traj = np.ones_like(self.boundary0, prec)
             self.r_traj[self.boundary0] = 0
@@ -1181,8 +1182,8 @@ class Committor(CommittorNE):
 
             # compute and print various metrics
             if self.iter % print_step == 0:
-                self.compute_metrics(metrics_print)
-                self.print_metrics(metrics_print)
+                self._compute_metrics(metrics_print)
+                self._print_metrics(metrics_print)
                 self.r_traj_old = self.r_traj
                 if self.iter > 0:
                     if save_min_delta_zq:
