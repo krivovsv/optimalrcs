@@ -268,7 +268,7 @@ class CommittorNE:
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type='y(t-d),r(t-d)', history_shift_type='r(t0)',
+                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
                       save_min_delta_zq=True, train_mask=None, delta2_r2_max_change_allowed=1e3):
         """
         Optimize the reaction coordinate (RC) to approximate the committor function using a nonparametric,
@@ -861,7 +861,7 @@ class MFPTNE(CommittorNE):
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type='y(t-d),r(t-d)', history_shift_type='r(t0)',
+                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
                       save_min_delta_zt=True, train_mask=None):
         """
         Optimize the reaction coordinate (RC) to approximate the mean first passage time (MFPT)
