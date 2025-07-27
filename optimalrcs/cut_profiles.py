@@ -5,6 +5,22 @@ from . import boundaries as bd
 def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,
              dt = 1, nbins = 1000):
+    """
+    Compute the Z_C1(r,dt) cut-based profile for a trajectory.
+
+    Parameters:
+        r_traj (np.ndarray): The reaction coordinate trajectory.
+        b_traj (np.ndarray): The boundary indicator values for the trajectory.
+        future_boundary (bd.FutureBoundary, optional): Boundary object for future boundaries. Defaults to None.
+        past_boundary (bd.PastBoundary, optional): Boundary object for past boundaries. Defaults to None.
+        i_traj (np.ndarray, optional): The index trajectory. Defaults to None.
+        w_traj (np.ndarray, optional): The weight trajectory. Defaults to None.
+        dt (int, optional): The lag time to compute Z_{C,}(r,dt). Defaults to 1.
+        nbins (int, optional): Number of bins for the profile. Defaults to 1000.
+
+    Returns:
+        tuple: A tuple containing bin edges and the Z_C1 profile.
+    """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
@@ -64,6 +80,25 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
 def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,
              dt = 1, nbins = 1000, dtmin=1):
+        """
+        Computes the Z_C1(r,dt) profile for irregularly sampled trajectory data.
+
+        Parameters:
+            r_traj (np.ndarray): The reaction coordinate trajectory, array of shape (num_steps,).
+            b_traj (np.ndarray): The committor state array of shape (num_steps,).
+            future_boundary (bd.FutureBoundary): An instance of FutureBoundary for boundary information.
+            past_boundary (bd.PastBoundary): An instance of PastBoundary for boundary information.
+            i_traj (np.ndarray): The index trajectory array of shape (num_steps,). If provided, it will be used to enforce consistency in the data handling.
+            w_traj (np.ndarray): The weight trajectory array of shape (num_steps,). If provided, it will be used to account for different weights in the calculation.
+            dt (int, optional): The lag time to compute Z_{C,1}(r,dt). Defaults to 1.
+            nbins (int): Number of bins for the Z_C1 profile.
+            dtmin (float): Minimum time step allowed for valid crossings, defaults to 1.
+
+        Returns:
+            tuple: A tuple containing two elements:
+                - bin_edges (np.ndarray): The edges of the histogram bins.
+                - zc1 (np.ndarray): The Z_C1 profile array of shape (nbins,).
+        """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
@@ -133,6 +168,24 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
 def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
             future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, w_traj : np.ndarray = None,
             dt=1, nbins=1000, log_scale=False, log_scale_pmin=1e-4):
+    """
+    Compute the Z_q profile for a trajectory given by `r_traj` and boundary conditions defined by `b_traj`.
+
+    Parameters:
+        r_traj (np.ndarray): The trajectory data as an array of shape (num_points,).
+        b_traj (np.ndarray): Boundary condition data as an array of shape (num_points,).
+        i_traj (np.ndarray, optional): Indicator function for the trajectory. Defaults to None.
+        future_boundary (bd.FutureBoundary, optional): Future boundary object. Defaults to None.
+        past_boundary (bd.PastBoundary, optional): Past boundary object. Defaults to None.
+        w_traj (np.ndarray, optional): Weight array for trajectory data. Defaults to None.
+        dt (int, optional): The lag time to compute Z_q(r,dt). Defaults to 1.
+        nbins (int, optional): Number of bins for histogramming. Defaults to 1000.
+        log_scale (bool, optional): Whether to use logarithmic scale for bin edges. Defaults to False.
+        log_scale_pmin (float, optional): Minimum value for logarithmic scale. Defaults to 1e-4.
+
+    Returns:
+        tuple: A tuple containing the bin edges and the Z_q profile array.
+    """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
@@ -193,6 +246,26 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
 def comp_zt(r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray, i_traj: np.ndarray = None,
             future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000, 
             log_scale=False, log_scale_tmin=1e-4):
+    """
+    Compute the Z,t profile from MFPT RC.
+
+    Parameters:
+        r_traj (np.ndarray): The main trajectory array representing the state variable.
+        b_traj (np.ndarray): The bias trajectory array, indicating whether a boundary is crossed.
+        t_traj (np.ndarray): The target trajectory array, used to compute transitions between boundaries.
+        i_traj (np.ndarray, optional): The indicator array for the main trajectory. Defaults to ones if not provided.
+        future_boundary (bd.FutureBoundary, optional): An instance of FutureBoundary class representing future boundaries.
+        past_boundary (bd.PastBoundary, optional): An instance of PastBoundary class representing past boundaries.
+        dt (int, optional): The lag time to compute Z_t(r,dt). Defaults to 1.
+        nbins (int, optional): The number of bins for histogramming. Defaults to 1000.
+        log_scale (bool, optional): Whether to use logarithmic scale for bin edges. Defaults to False.
+        log_scale_tmin (float, optional): A minimum value for the logarithmic scale if provided. Defaults to 1e-4.
+        
+    Returns:
+        tuple: A tuple containing two elements:
+            - bin_edges (np.ndarray): The edges of the histogram bins.
+            - Z_t (np.ndarray): The computed z profile along the trajectory.
+    """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
@@ -244,20 +317,23 @@ def comp_zt(r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray, i_traj: 
     return bin_edges, zc1
 
 def comp_zca(r_traj, a, i_traj=None, w_traj=None, t_traj=None, nbins=1000, eps=1e-3, dt=1):
-    """ computes $Z_{C,a}$ cut profile
+    """
+    Computes the $Z_{C,a}$ cut profile.
 
-    :param r_traj: RC timeseries
-    :param a: exponent of the cut profile
-    :param i_traj: array mapping from the total aggregated trajectory frame to trajectory number
-    :param w_traj: re-weighting factor
-    :param t_traj: time along trajectories for non-constant delta t
-    :param nbins: number of bins in the histogram
-    :param eps: lower bound for delta_r in computing delta_r^a, when delta_r<0
-    :param dt: delta_t used to compute cut profiles
-
-    returns
-    :lx : array of binedges postions
-    :ZCa : array of values of ZCa at these postions
+    Parameters:
+        r_traj (TensorFlow Tensor): RC timeseries data.
+        a (int or float): Exponent of the cut profile.
+        i_traj (TensorFlow Tensor, optional): Array mapping from total aggregated trajectory frame to trajectory number. Defaults to None.
+        w_traj (TensorFlow Tensor, optional): Re-weighting factor. Defaults to None.
+        t_traj (TensorFlow Tensor, optional): Time along trajectories for non-constant delta t. Defaults to None.
+        nbins (int, optional): Number of bins in the histogram. Defaults to 1000.
+        eps (float, optional): Lower bound for delta_r in computing delta_r^a when delta_r < 0. Defaults to 1e-3.
+        dt (int, optional): The lag time to compute Z_{C,a}(r,dt). Defaults to 1.
+        
+    Returns:
+        tuple: A tuple containing:
+            bin_edges (TensorFlow Tensor): Array of bin edges positions.
+            Z_{C,a} (TensorFlow Tensor): Array of values of ZCa at these positions.
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)

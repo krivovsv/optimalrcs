@@ -95,6 +95,9 @@ def basis_poly_ry(r, y, n, fenv=None):
 
 
 class CommittorNE:
+    """
+    Class for estimating committors from nonequilbrium smapling using nonparametric approach.
+    """
     def __init__(self, boundary0, boundary1, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
         """
         Initialize the CommittorNE class for non-equilibrium committor estimation.
@@ -145,18 +148,59 @@ class CommittorNE:
         self.w_traj = None
         
     def set_fixed_traj_length_trap(self, trap_boundary, traj_length):
+        """
+        This method sets a fixed trajectory length for trajectory segments ending in a trap state.
+        
+        Parameters:
+            trap_boundary (int): The index of the boundary where the trajectory starts being trapped.
+            traj_length (int): The desired length of the trajectory segment, should be similar to other, nontrapped segments
+        
+        Returns:
+            None
+        """
         self.future_boundary.set_distance_to_end_fixed_traj_length_trap(self.i_traj, trap_boundary, traj_length)
         
     def set_poisson_traj_length_trap(self, trap_boundary, traj_length=None):
+        """
+        This method sets a Poisson distribut trajectory length for trajectory segments ending in a trap state. 
+        
+        Parameters:
+            trap_boundary (int): The index of the absorbing boundary.
+            traj_length (int, optional): The desired length of the trajectory should be similar to other, nontrapped segments.
+            If None, it will be determined by the Poisson distribution.
+            
+        Returns:
+            None
+        """
         self.future_boundary.set_distance_to_end_poisson_traj_length_trap(self.i_traj, trap_boundary, traj_length)
 
     def print_metrics(self, metrics_print):
+        """
+        Print selected metrics.
+        
+        Parameters:
+            metrics_print (list of str): List of metric names to be printed.
+        
+        Returns:
+            None
+        """
         s = ''
         for metric in metrics_print:
             s += '%s=%g, ' % (metrics.metrics_short_name[metric], self.metrics_history[metric][-1])
         print(s[:-2])
 
     def compute_metrics(self, metrics_print):
+        """
+        Compute and store specified metrics.
+        
+        Parameters:
+            metrics_print (list of str): List of metric names to be computed. The available metrics are defined in `metrics`.
+        
+        Returns:
+            None
+        
+        This method iterates over the list of requested metrics, ensuring that each metric is either initialized or appended to the history if not previously recorded. It then computes the specified metric using a mapping from `metrics` and appends the result to the corresponding entry in `self.metrics_history`.
+        """
         for metric in metrics_print:
             if metric not in self.metrics_history:
                 self.metrics_history[metric] = []
@@ -365,6 +409,28 @@ class CommittorNE:
         return y1, y2
 
     def plots_metrics(self, metrics=None):
+        """
+        Plots various metrics during the optimization process for a non-equilibrium committor computation.
+        
+        Parameters:
+            self : The instance of the CommittorNE class containing the computed metrics.
+            metrics (list) : A list of metric names to plot. If None, default metrics are used.
+        
+        Returns:
+            fig : The figure object containing the subplots for the plotted metrics.
+            ax1, ax2, ax3 : The axes objects corresponding to different plots.
+        
+        Raises:
+            ValueError : If an invalid metric name is provided in the metrics list.
+        
+        Examples:
+            To plot default metrics during the optimization process::
+                committor_ne.plots_metrics()
+        
+            To specify a custom set of metrics to plot::
+                custom_metrics = ['metric1', 'metric2']
+                committor_ne.plots_metrics(custom_metrics)
+        """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
         if metrics is None:
             metrics=[]
@@ -384,12 +450,12 @@ class CommittorNE:
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, reweight=False, dtmin=1):
         """
         Plot free energy profiles and the validation criterion Z_q for the current RC.
-
+        
         This method generates three side-by-side plots:
         1. Free energy profile (FEP) as a function of the RC.
         2. FEP along the natural coordinate where the diffusion coefficient is constant.
         3. Validation criterion Z_q across lag times, used to assess RC optimality.
-
+        
         Parameters
         ----------
         r_traj : array_like, optional
@@ -402,14 +468,12 @@ class CommittorNE:
             If True, apply equilibrium reweighting using `self.w_traj`.
         dtmin : int, optional
             Minimum lag time for Z_q computation (default: 1).
-        zq_force0 : bool, optional
-            If True, force Z_q to be zero at the boundaries, useful for visual clarity or specific validation setups.
-
+        
         Returns
         -------
         None
             Displays the plots using matplotlib.
-
+        
         Notes
         -----
         The natural coordinate transformation rescales the RC such that the diffusion
@@ -533,6 +597,9 @@ class CommittorNE:
 
 
 class MFPTNE(CommittorNE):
+    """
+    A class to compute the mean first passage time (MFPT) optimal RC.
+    """
     def __init__(self, boundary0, i_traj=None, t_traj=None, seed_r=None, prec=np.float64):
         """
         Initialize the MFPTNE class for non-equilibrium mean first passage time (MFPT) optimization.
@@ -798,11 +865,36 @@ class MFPTNE(CommittorNE):
         plt.show()
 
 class Committor(CommittorNE):
+    """
+    Class to compute committors for equilibrium trajectory.
+    """
     def fit_transform(self, comp_y,
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None, stable=False,
                       save_min_delta_zq=True, train_mask=None, delta2_r2_min=10):
+        """
+        Fits and transforms the committor based on the provided parameters.
+        
+        Parameters:
+            comp_y (function): Function to compute the target variable y.
+            envelope (callable or float, optional): Envelope function or gamma value for non-parametric transformations. Defaults to envelope_sigmoid.
+            gamma (int or callable, optional): Gamma parameter for basis functions. Can be an integer or a callable function. Defaults to 0.
+            basis_functions (callable, optional): Function to compute the basis functions. Defaults to basis_poly_ry.
+            ny (int, optional): Number of basis functions. Defaults to 6.
+            max_iter (int, optional): Maximum number of iterations. Defaults to 100000.
+            min_delta_x (float, optional): Minimum delta x for stopping criteria.
+            min_delta_r2 (float, optional): Minimum delta r2 for stopping criteria.
+            print_step (int, optional): Frequency of printing metrics. Defaults to 1000.
+            metrics_print (tuple or str, optional): Metrics to be printed. Can be a tuple of metric names or 'all' for all available metrics.
+            stable (bool, optional): Whether to stop when the model is stable. Defaults to False.
+            save_min_delta_zq (bool, optional): Whether to save the minimum delta zq. Defaults to True.
+            train_mask (tf.Tensor, optional): Mask for training data.
+            delta2_r2_min (float, optional): Minimum delta r2 for stopping criteria. Defaults to 10.
+        
+        Returns:
+            self: The fitted committor model.
+        """
         self.r_traj_old = self.r_traj
         self.time_start = time.time()
         if metrics_print is None:
@@ -858,6 +950,39 @@ class Committor(CommittorNE):
 
                         
     def plots_feps(self, r_traj=None, delta_t_sim=1, ldt=None, dtmin=1):
+        """
+        Plot free energy profiles and the validation criterion Z_q for the current RC.
+        
+        This method generates three side-by-side plots:
+        1. Free energy profile (FEP) as a function of the RC.
+        2. FEP along the natural coordinate where the diffusion coefficient is constant.
+        3. Validation criterion Z_{C,1} across lag times, used to assess RC optimality.
+        
+        Parameters
+        ----------
+        r_traj : array_like, optional
+            Reaction coordinate time-series to plot. If None, uses `self.r_traj`.
+        delta_t_sim : int, optional
+            Simulation time step used for computing the natural coordinate (default: 1).
+        ldt : array_like, optional
+            List of lag times used to compute Z_q profiles.
+        reweight : bool, optional
+            If True, apply equilibrium reweighting using `self.w_traj`.
+        dtmin : int, optional
+            Minimum lag time for Z_q computation (default: 1).
+        
+        Returns
+        -------
+        None
+            Displays the plots using matplotlib.
+        
+        Notes
+        -----
+        The natural coordinate transformation rescales the RC such that the diffusion
+        coefficient becomes constant, improving interpretability of the FEP.
+        The Z_{C,1} plot is used to validate whether the RC approximates the committor,
+        with constancy across lag times indicating optimality.
+        """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
             r_traj = self.r_traj
