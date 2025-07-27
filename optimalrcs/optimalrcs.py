@@ -954,8 +954,8 @@ class MFPTNE(CommittorNE):
 
             # compute and print various metrics
             if self.iter % print_step == 0:
-                self.compute_metrics(metrics_print)
-                self.print_metrics(metrics_print)
+                self._compute_metrics(metrics_print)
+                self._print_metrics(metrics_print)
                 self.r_traj_old = self.r_traj
                 if self.iter > 0:
                     if save_min_delta_zt:
