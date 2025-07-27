@@ -80,25 +80,25 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
 def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,
              dt = 1, nbins = 1000, dtmin=1):
-        """
-        Computes the Z_C1(r,dt) profile for irregularly sampled trajectory data.
+    """
+    Computes the Z_C1(r,dt) profile for irregularly sampled trajectory data.
 
-        Parameters:
-            r_traj (np.ndarray): The reaction coordinate trajectory, array of shape (num_steps,).
-            b_traj (np.ndarray): The committor state array of shape (num_steps,).
-            future_boundary (bd.FutureBoundary): An instance of FutureBoundary for boundary information.
-            past_boundary (bd.PastBoundary): An instance of PastBoundary for boundary information.
-            i_traj (np.ndarray): The index trajectory array of shape (num_steps,). If provided, it will be used to enforce consistency in the data handling.
-            w_traj (np.ndarray): The weight trajectory array of shape (num_steps,). If provided, it will be used to account for different weights in the calculation.
-            dt (int, optional): The lag time to compute Z_{C,1}(r,dt). Defaults to 1.
-            nbins (int): Number of bins for the Z_C1 profile.
-            dtmin (float): Minimum time step allowed for valid crossings, defaults to 1.
+    Parameters:
+        r_traj (np.ndarray): The reaction coordinate trajectory, array of shape (num_steps,).
+        b_traj (np.ndarray): The committor state array of shape (num_steps,).
+        future_boundary (bd.FutureBoundary): An instance of FutureBoundary for boundary information.
+        past_boundary (bd.PastBoundary): An instance of PastBoundary for boundary information.
+        i_traj (np.ndarray): The index trajectory array of shape (num_steps,). If provided, it will be used to enforce consistency in the data handling.
+        w_traj (np.ndarray): The weight trajectory array of shape (num_steps,). If provided, it will be used to account for different weights in the calculation.
+        dt (int, optional): The lag time to compute Z_{C,1}(r,dt). Defaults to 1.
+        nbins (int): Number of bins for the Z_C1 profile.
+        dtmin (float): Minimum time step allowed for valid crossings, defaults to 1.
 
-        Returns:
-            tuple: A tuple containing two elements:
-                - bin_edges (np.ndarray): The edges of the histogram bins.
-                - zc1 (np.ndarray): The Z_C1 profile array of shape (nbins,).
-        """
+    Returns:
+        tuple: A tuple containing two elements:
+            - bin_edges (np.ndarray): The edges of the histogram bins.
+            - zc1 (np.ndarray): The Z_C1 profile array of shape (nbins,).
+    """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
     bin_edges = tf.linspace(r_min, r_max, nbins + 1)
