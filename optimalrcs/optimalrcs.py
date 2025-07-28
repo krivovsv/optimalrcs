@@ -268,7 +268,7 @@ class CommittorNE:
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None, min_delta_r2=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
+                      history_delta_t=None, history_type='y(t-d),r(t-d)',
                       save_min_delta_zq=True, train_mask=None, delta2_r2_max_change_allowed=1e3):
         """
         Optimize the reaction coordinate (RC) to approximate the committor function using a nonparametric,
@@ -310,9 +310,6 @@ class CommittorNE:
         history_type : str or list of str, optional
             Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)').
             Default: 'y(t-d),r(t-d)'.
-        history_shift_type : str, optional
-            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0').
-            Default: 'r(t0)'.
         save_min_delta_zq : bool, optional
             If True, save the RC with the smallest observed Z_q deviation (default: True).
         train_mask : array_like, optional
@@ -361,7 +358,9 @@ class CommittorNE:
             if delta_t == 0:
                 y1, y2 = self.r_traj, y
             else:
-                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
+                if self.p2i0 is None: self._compute_p2i0()
+                var1, var2 = (np.random.choice(history_type) if isinstance(history_type, list) else history_type).split(',')
+                y1, y2 = self._history_select_y1y2(y, self.r_traj, delta_t, var1, var2)
 
             fk = basis_functions(y1, y2, ny, _envelope)
 
@@ -375,7 +374,6 @@ class CommittorNE:
             if delta_r2_new-delta_r2<delta2_r2_max_change_allowed:
                 self.r_traj=r_traj
                 delta_r2=delta_r2_new
-
 
             # compute and print various metrics
             if self.iter % print_step == 0:
@@ -391,165 +389,76 @@ class CommittorNE:
                         break
                     if min_delta_r2 is not None and self.metrics_history['delta_r2'][-1] < min_delta_r2:
                         break
-
-    def _history_select_y1y2(self, y, d, history_type, history_shift_type):
+                    
+                    
+    def _compute_p2i0(self):
         """
-        Select a pair of collective variable (CV) time-series (y1, y2) for use in history-based
-        basis function construction during RC optimization.
+            Precompute trajectory boundary indices for history-aware variable selection.
 
-        This method implements logic for incorporating trajectory history into the optimization
-        by selecting delayed versions of the CV and/or the reaction coordinate. It supports
-        multiple history types and handles trajectory boundaries using configurable shift strategies.
+            This method identifies the first frame of each trajectory segment in `self.i_traj`
+            and stores a mapping (`self.p2i0`) from each frame to the first frame of its trajectory.
+            It also stores a range tensor (`self.irange`) for efficient indexing.
+        """
+        changes = np.diff(self.i_traj, prepend=self.i_traj[0] - 1) != 0
+        first_indices = np.where(changes)[0]
+        self.p2i0 = np.repeat(first_indices, np.diff(np.append(first_indices, len(self.i_traj))))
+        self.p2i0 = tf.convert_to_tensor(self.p2i0)
+        self.irange = tf.range(tf.shape(self.i_traj)[0])
+        
+        
+    @tf.function
+    def _history_select_y1y2(self, y_traj, r_traj, delta_t, var1, var2):
+        """
+        Select a pair of time-series variables for history-based basis construction.
+
+        This method supports symbolic descriptors such as 'y(t)', 'r(t-d)', 'lndt', and 'dt'
+        to flexibly construct features that incorporate trajectory history. It ensures that
+        delayed values do not cross trajectory boundaries by using precomputed mappings.
 
         Parameters
         ----------
-        y : tf.Tensor
-            Current collective variable time-series.
-        d : int
+        y_traj : tf.Tensor
+            Time-series of the collective variable y(t).
+        r_traj : tf.Tensor
+            Time-series of the reaction coordinate r(t).
+        delta_t : int
             Time delay (in frames) to apply for history-based selection.
-        history_type : str or list of str
-            Type(s) of history-based variation to apply. Examples:
-            - 'y(t-d),r(t-d)'
-            - 'y(t-d),y(t)'
-            - 'r(t-d),y(t)'
-        history_shift_type : str
-            Strategy for handling trajectory boundaries when applying delays:
-            - 'r(t0)' : use the first frame of the trajectory.
-            - 'r(t)'  : use the current frame.
-            - '0'     : use zero padding.
-            - 'r(t-d)': allow cross-boundary shifts.
+        var1 : str
+            Descriptor for the first variable (e.g., 'y(t-d)', 'r(t)', 'lndt').
+        var2 : str
+            Descriptor for the second variable (e.g., 'y(t)', 'r(t-d)', 'dt').
 
         Returns
         -------
         y1 : tf.Tensor
-            First variable for basis construction (e.g., delayed y or r).
+            First selected variable for basis construction.
         y2 : tf.Tensor
-            Second variable for basis construction (e.g., current y or r).
+            Second selected variable for basis construction.
 
-        Notes
-        -----
-        This method enables the use of time-delayed features in the basis expansion,
-        which improves expressivity and compensates for missing variables. It is
-        conceptually related to Takens' embedding theorem and is central to the
-        nonparametric optimization framework described in Banushkina & Krivov (2025).
+        Raises
+        ------
+        ValueError
+            If an unknown descriptor is provided for `var1` or `var2`.
         """
-        if d > 0:
-            if history_type is None:
-                history_type = 'y(t-d),r(t-d)'
-            if history_type == 'y(t-d),r(t-d)' and history_shift_type is None:
-                if self.i_traj is not None:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                else:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
-                y1 = tf.where(it, tf.roll(y, d, 0), 0)
-                y2 = tf.where(it, tf.roll(self.r_traj, d, 0), 0)
-            elif history_type == 'y(t-d),y(t)' and history_shift_type is None:
-                if self.i_traj is not None:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), self.i_traj[d:] == self.i_traj[:-d]], 0)
-                else:
-                    it = tf.concat([tf.zeros([d], dtype=tf.bool), tf.ones([self.len - d], dtype=tf.bool)], 0)
-                y1 = tf.where(it, tf.roll(y, d, 0), 0)
-                y2 = y
-            else:
-                y1, y2 = self._history_select_y(y, d, history_type, history_shift_type)
-        else:
-            y1, y2 = self.r_traj, y
-        return y1, y2
+        def shift_y(tensor):
+            p2i=tf.maximum(self.p2i0, self.irange - delta_t) # max(i-dt,i0)
+            return tf.gather(tensor, p2i)
 
-    def _history_select_y(self, y, d, history_type, history_shift_type):
-        """
-        Internal method to select delayed variables for history-based basis construction.
+        def get_var(descriptor):
+            if descriptor == 'r(t)': return r_traj
+            if descriptor == 'y(t)': return y_traj
+            if descriptor == 'r(t-d)': return shift_y(r_traj)
+            if descriptor == 'y(t-d)': return shift_y(y_traj)
+            if descriptor == 'lndt':
+                delayed = shift_y(self.t_traj)
+                return tf.where(delayed > 0, tf.math.log(self.t_traj - delayed + 1e-5), 0)
+            if descriptor == 'dt':
+                delayed = shift_y(self.t_traj)
+                return tf.where(delayed > 0, self.t_traj - delayed, 0)
+            raise ValueError(f"Unknown descriptor: {descriptor}")
+            
+        return get_var(var1), get_var(var2)
 
-        This method is used when the history type is not one of the predefined simple cases
-        (e.g., 'y(t-d),r(t-d)'). It supports a wide range of history-based variations by
-        interpreting symbolic descriptors such as 'r(t-d)', 'y(t-d)', 'lndt', and 'dt'.
-
-        It also handles trajectory boundary conditions using a configurable shift strategy,
-        ensuring that delayed values are consistent across trajectory segments.
-
-        Parameters
-        ----------
-        y : tf.Tensor
-            Collective variable time-series.
-        d : int
-            Time delay (in frames).
-        history_type : str
-            Descriptor of the history-based variation (e.g., 'y(t-d),r(t-d)', 'lndt,dt').
-        history_shift_type : str
-            Strategy for handling trajectory boundaries. Options include:
-            - 'r(t-d)' : allow cross-boundary shifts.
-            - 'r(t)'   : use current value if delayed value crosses boundary.
-            - 'r(t0)'  : use first frame of trajectory.
-            - '0'      : use zero padding.
-
-        Returns
-        -------
-        y1 : tf.Tensor
-            First variable for basis construction (e.g., delayed y or r).
-        y2 : tf.Tensor
-            Second variable for basis construction (e.g., delayed r or y).
-
-        Notes
-        -----
-        This method enables flexible incorporation of trajectory history into the RC optimization,
-        supporting advanced variations such as time-to-boundary ('dt') and log-time ('lndt').
-        It is central to the expressivity of the nonparametric framework described in
-        Banushkina & Krivov (2025).
-        """
-        if history_shift_type is None:
-            history_shift_type = 'r(t0)'
-        if history_type is None:
-            history_type = 'y(t-d),r(t-d)'
-        if history_shift_type == 'r(t0)' and self.p2i0 is None:
-            changes = np.diff(self.i_traj, prepend=self.i_traj[0]-1) != 0
-            first_indices = np.where(changes)[0]
-            self.p2i0 = np.repeat(first_indices, np.diff(np.append(first_indices, len(self.i_traj))))
-                        # pointer to the first frame of trajectory defined by i_traj
-            self.p2i0 = tf.convert_to_tensor(self.p2i0)
-
-        def shift_y(d, i_traj, y, shift_type, p2i0): # which point to select when previous point at (t-d) belongs to other trajectory
-            if shift_type == 'r(t-d)':  # do nothing, take previous values y(t-d) disregarding trajectory info i_traj
-                return tf.roll(y, d, 0)
-            elif shift_type == 'r(t)':  # take y(t) instead of y(t-d)
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), y)
-            elif shift_type == 'r(t0)':  # take first frame of trajectory, y(t0) instead of y(t-d)
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), tf.gather(y,p2i0))
-            else:  # take 0 instead of y(t-d)
-                return tf.where(tf.roll(i_traj, d, 0) == i_traj, tf.roll(y, d, 0), 0)
-
-        if len(history_type) > 1:
-            d1, d2 = history_type[np.random.randint(len(history_type))].split(',')
-        else:
-            d1, d2 = history_type[0].split(',')
-        if d1 == 'r(t)':
-            y1 = self.r_traj
-        if d1 == 'y(t)':
-            y1 = y
-        if d1 == 'r(t-d)':
-            y1 = shift_y(d, self.i_traj, self.r_traj, history_shift_type, self.p2i0)
-        if d1 == 'y(t-d)':
-            y1 = shift_y(d, self.i_traj, y, history_shift_type, self.p2i0)
-        if d1 == 'lndt':
-            y1 = shift_y(d, self.i_traj, self.t_traj, history_shift_type, self.p2i0)
-            y1 = tf.where(y1 > 0, tf.math.log(self.t_traj-y1+1e-5), 0)
-        if d1 == 'dt':
-            y1 = shift_y(d, self.i_traj, self.t_traj, history_shift_type, self.p2i0)
-            y1 = tf.where(y1 > 0, self.t_traj-y1, 0)
-        if d2 == 'r(t)':
-            y2 = self.r_traj
-        if d2 == 'y(t)':
-            y2 = y
-        if d2 == 'r(t-d)':
-            y2 = shift_y(d, self.i_traj, self.r_traj, history_shift_type, self.p2i0)
-        if d2 == 'y(t-d)':
-            y2 = shift_y(d, self.i_traj, y, history_shift_type, self.p2i0)
-        if d2 == 'lndt':
-            y2 = shift_y(d, self.i_traj, self.t_traj, history_shift_type, self.p2i0)
-            y2 = tf.where(y2 > 0,  tf.math.log(self.t_traj-y2+1e-5), 0)
-        if d2 == 'dt':
-            y2 = shift_y(d, self.i_traj, self.t_traj, history_shift_type, self.p2i0)
-            y2 = tf.where(y2 > 0,  self.t_traj-y2, 0)
-        return y1, y2
 
     def plots_metrics(self, metrics_list=None):
         """
@@ -561,31 +470,13 @@ class CommittorNE:
 
         Parameters
         ----------
-        metrics : list of str, optional
+        metrics_list : list of str, optional
             List of metric names to plot. If None, all available first 3 metrics are plotted.
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The figure object containing the subplots.
-        ax1, ax2, ax3 : matplotlib.axes.Axes
-            The axes objects corresponding to the plotted metrics.
-
-      
-        Examples
-        --------
-        >>> committor_ne.plots_metrics()
-        >>> committor_ne.plots_metrics(['cross_entropy', 'delta_r2'])
-
-        Notes
-        -----
-        This visualization complements the Z_q validation criterion and helps interpret
-        the behavior of metrics such as:
-        - 'cross_entropy': classification loss.
-        - 'delta_r2': RC smoothness.
-        - 'max_sd_zq': deviation from optimality.
-
-        The dual-axis plotting scheme highlights early and late-stage optimization behavior.
+        None
+            Displays the plots using matplotlib.
         """
         _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
         if metrics_list is None:
@@ -625,13 +516,6 @@ class CommittorNE:
         -------
         None
             Displays the plots using matplotlib.
-        
-        Notes
-        -----
-        The natural coordinate transformation rescales the RC such that the diffusion
-        coefficient becomes constant, improving interpretability of the FEP.
-        The Z_q plot is used to validate whether the RC approximates the committor,
-        with constancy across lag times indicating optimality.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -678,11 +562,6 @@ class CommittorNE:
         -------
         None
         Displays the plots using matplotlib.
-
-        Notes
-        -----
-        These plots are most informative when trajectories reach both boundary states.
-        In sparse or irregular datasets, Z_q may provide a more robust validation.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -856,7 +735,7 @@ class MFPTNE(CommittorNE):
                       envelope=envelope_sigmoid, gamma=0, basis_functions=basis_poly_ry, ny=6,
                       max_iter=100000, min_delta_x=None,
                       print_step=1000, metrics_print=None,
-                      history_delta_t=None, history_type=['y(t-d),r(t-d)'], history_shift_type='r(t0)',
+                      history_delta_t=None, history_type='y(t-d),r(t-d)',
                       save_min_delta_zt=True, train_mask=None):
         """
         Optimize the reaction coordinate (RC) to approximate the mean first passage time (MFPT)
@@ -892,9 +771,6 @@ class MFPTNE(CommittorNE):
         history_type : str or list of str, optional
             Type(s) of history-based variation (e.g., 'y(t-d),r(t-d)', 'y(t-d),y(t)').
             Default: 'y(t-d),r(t-d)'
-        history_shift_type : str, optional
-            Strategy for handling history across trajectory boundaries (e.g., 'r(t0)', 'r(t)', '0').
-            Default: 'r(t0)'
         save_min_delta_zt : bool, optional
             If True, save the RC with the smallest observed Z_tau deviation (default: True).
         train_mask : array_like, optional
@@ -938,7 +814,9 @@ class MFPTNE(CommittorNE):
             if delta_t == 0:
                 y1, y2 = self.r_traj, y
             else:
-                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
+                if self.p2i0 is None: self._compute_p2i0()
+                var1, var2 = (np.random.choice(history_type) if isinstance(history_type, list) else history_type).split(',')
+                y1, y2 = self._history_select_y1y2(y, self.r_traj, delta_t, var1, var2)
 
             fk = basis_functions(y1, y2, ny, _envelope)
 
@@ -994,14 +872,6 @@ class MFPTNE(CommittorNE):
         -------
         None
         Displays the plots using matplotlib.
-
-        Notes
-        -----
-        The natural coordinate transformation rescales the RC such that the diffusion
-        coefficient becomes constant, improving interpretability of the FEP.
-
-        The Z_tau plot is a key validation tool for MFPT-based RCs. Constancy of Z_tau
-        across lag times indicates that the RC captures the essential kinetics of the system.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -1042,20 +912,6 @@ class MFPTNE(CommittorNE):
         -------
         None
             Displays the plots using matplotlib.
-
-        Notes
-        -----
-        The three subplots are:
-        1. Predicted vs. observed MFPT values, binned along the RC.
-        2. Histogram showing the number of trajectory segments from each RC bin that reach the absorbing boundary.
-        3. (Optional) ROC curve — currently disabled in this implementation.
-
-        However, for this plot to be informative,
-        the number of discarded segments — i.e., those that do not reach the boundary —
-        should be small. Otherwise, the observed statistics may be biased or misleading.
-        
-        These plots complement the Z_τ validation criterion introduced in Banushkina & Krivov (2025),
-        which assesses whether the RC captures the essential kinetics of the system across time scales.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
@@ -1215,13 +1071,6 @@ class Committor(CommittorNE):
         -------
         None
             Displays the plots using matplotlib.
-        
-        Notes
-        -----
-        The natural coordinate transformation rescales the RC such that the diffusion
-        coefficient becomes constant, improving interpretability of the FEP.
-        The Z_{C,1} plot is used to validate whether the RC approximates the committor,
-        with constancy across lag times indicating optimality.
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
         if r_traj is None:
