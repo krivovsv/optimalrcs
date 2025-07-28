@@ -403,7 +403,9 @@ class CommittorNE:
         first_indices = np.where(changes)[0]
         self.p2i0 = np.repeat(first_indices, np.diff(np.append(first_indices, len(self.i_traj))))
         self.p2i0 = tf.convert_to_tensor(self.p2i0)
-        self.irange = tf.range(tf.shape(self.i_traj)[0])
+        #self.irange = tf.range(tf.shape(self.i_traj)[0])
+        self.irange = tf.convert_to_tensor(np.arange(len(self.i_traj)))
+
         
         
     @tf.function
