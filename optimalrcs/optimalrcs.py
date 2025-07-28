@@ -331,36 +331,37 @@ class CommittorNE:
         It incorporates history-based features to compensate for missing variables and
         uses the Z_q validation criterion to assess RC optimality across time scales.
         """
-        self.time_start = time.time()
+        
+        if history_delta_t is not None and any(x < 0 for x in history_delta_t):
+            raise ValueError("All values in history_delta_t must be non-negative.")
         if metrics_print is None:
-            metrics_print = 'iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
+            metrics_print = 'iteration', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
-        if not callable(gamma):
-            _gamma = tf.constant(gamma, dtype=self.prec)
-        if self.i_traj is None:
-            It=tf.ones_like(self.r_traj[:-1])
+        if callable(gamma):
+            _gamma = tf.constant(gamma(self.iter, max_iter), dtype=self.prec)
         else:
-            It=tf.cast(self.i_traj[1:] == self.i_traj[:-1],self.r_traj.dtype)
-        delta_r2=tf.reduce_sum(It*tf.square(self.r_traj[1:] - self.r_traj[:-1]))
+            _gamma = tf.constant(gamma, dtype=self.prec)
+        delta_r2=metrics._delta_r2_ne_dt1(self.r_traj, self.i_traj)
 
+        self.time_start = time.time()
         for self.iter in range(max_iter + 1):
-
-           # compute the basis functions
-            if history_delta_t is None:
-                delta_t = 0
-            else:
-                delta_t = np.random.choice(history_delta_t)
-            if delta_t == 0:
-                y1, y2 = self.r_traj, tf.cast(comp_y(), self.prec)
-            else:
-                y = tf.cast(comp_y(), self.prec)
-                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
-
 
             # compute envelope, modulating the basis functions
             if self.iter % 10 == 0 and callable(envelope):
                 _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
 
+            # compute next CV y, and cast it to the required accuracy
+            y = tf.cast(comp_y(), self.prec)
+
+            # compute the basis functions
+            if history_delta_t is None:
+                delta_t = 0
+            else:
+                delta_t = np.random.choice(history_delta_t)
+            if delta_t == 0:
+                y1, y2 = self.r_traj, y
+            else:
+                y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
 
             fk = basis_functions(y1, y2, ny, _envelope)
 
@@ -370,9 +371,8 @@ class CommittorNE:
 
             # compute next update of the RC
             r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma)
-            delta_r2_new = tf.reduce_sum(It*tf.square(r_traj[1:] - r_traj[:-1]))
+            delta_r2_new = metrics._delta_r2_ne_dt1(r_traj, self.i_traj)
             if delta_r2_new-delta_r2<delta2_r2_max_change_allowed:
-                #print (delta_r2_new.numpy(),end=' ')
                 self.r_traj=r_traj
                 delta_r2=delta_r2_new
 
@@ -551,7 +551,7 @@ class CommittorNE:
             y2 = tf.where(y2 > 0,  self.t_traj-y2, 0)
         return y1, y2
 
-    def plots_metrics(self, metrics=None):
+    def plots_metrics(self, metrics_list=None):
         """
         Plot selected optimization metrics to visualize convergence and RC quality.
 
@@ -587,20 +587,15 @@ class CommittorNE:
 
         The dual-axis plotting scheme highlights early and late-stage optimization behavior.
         """
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
-        if metrics is None:
-            metrics=[]
-            for m in self.metrics_history:
-                if m != 'iter':
-                    metrics.append(m)
-                if len(m) == 3:
-                    break
-
-        for m, ax in zip(metrics, (ax1,ax2,ax3)):
-            n=len(self.metrics_history['iter'])//2
-            ax.plot(self.metrics_history['iter'][1:],self.metrics_history[m][1:],':b')
+        _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 4))
+        if metrics_list is None:
+            metrics_list=[m for m in self.metrics_history if m != 'iteration'][:3] # first 3
+            
+        for m, ax in zip(metrics_list, (ax1,ax2,ax3)):
+            n=len(self.metrics_history['iteration'])//2
+            ax.plot(self.metrics_history['iteration'][1:],self.metrics_history[m][1:],':b')
             axt=ax.twinx()
-            axt.plot(self.metrics_history['iter'][n:],self.metrics_history[m][n:],'-r')
+            axt.plot(self.metrics_history['iteration'][n:],self.metrics_history[m][n:],'-r')
             axt.grid()
             ax.set(xlabel='iteration',ylabel=m)
 
@@ -916,30 +911,33 @@ class MFPTNE(CommittorNE):
         It supports history-based features and uses the Z_tau criterion to validate RC
         optimality across time scales.
         """
-        self.time_start = time.time()
+        if history_delta_t is not None and any(x < 0 for x in history_delta_t):
+            raise ValueError("All values in history_delta_t must be non-negative.")
         if metrics_print is None:
-            metrics_print = 'iter', 'imfpt', 'max_sd_zt', 'max_grad_zt', 'delta_x', 'time_elapsed'
+            metrics_print = 'iteration', 'imfpt', 'max_sd_zt', 'max_grad_zt', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
-        if not callable(gamma):
+        if callable(gamma):
+            _gamma = tf.constant(gamma(self.iter, max_iter), dtype=self.prec)
+        else:
             _gamma = tf.constant(gamma, dtype=self.prec)
+        self.time_start = time.time()
         for self.iter in range(max_iter + 1):
-
-            # compute next CV y, and cast it to the required accuracy
-            y = tf.cast(comp_y(), self.prec)
 
             # compute envelope, modulating the basis functions
             if self.iter % 10 == 0 and callable(envelope):
                 _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
 
-           # compute the basis functions
+            # compute next CV y, and cast it to the required accuracy
+            y = tf.cast(comp_y(), self.prec)
+
+            # compute the basis functions
             if history_delta_t is None:
                 delta_t = 0
             else:
                 delta_t = np.random.choice(history_delta_t)
             if delta_t == 0:
-                y1, y2 = self.r_traj, tf.cast(comp_y(), self.prec)
+                y1, y2 = self.r_traj, y
             else:
-                y = tf.cast(comp_y(), self.prec)
                 y1, y2 = self._history_select_y1y2(y, delta_t, history_type, history_shift_type)
 
             fk = basis_functions(y1, y2, ny, _envelope)

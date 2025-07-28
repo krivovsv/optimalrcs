@@ -1,25 +1,70 @@
+"""
+cut_profiles.py
+
+This module provides functions for computing various cut-based reaction coordinate profiles
+from trajectory data, including Z_C1, Z_q, Z_t, and Z_{C,a} profiles. These profiles are used
+to analyze the dynamics of systems with respect to boundaries defined in reaction coordinate space.
+
+The module supports both regularly and irregularly sampled trajectories, and allows for
+custom weighting, indexing, and boundary handling.
+
+Functions
+---------
+comp_zc1 :
+    Computes the Z_C1(r, dt) profile for regularly sampled trajectories.
+
+comp_zc1_irreg :
+    Computes the Z_C1(r, dt) profile for irregularly sampled trajectories with compensation.
+
+comp_zq :
+    Computes the Z_q(r, dt) profile, a simplified cut-based profile.
+
+comp_zt :
+    Computes the Z_t(r, dt) profile using mean first passage time (MFPT) information.
+
+comp_zca :
+    Computes the Z_{C,a}(r, dt) profile with a general exponent `a`.
+
+All functions return a tuple of bin edges and the corresponding profile values.
+"""
+
+
 import numpy as np
 import tensorflow as tf
 from . import boundaries as bd
+
 
 def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureBoundary = None,
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,
              dt = 1, nbins = 1000):
     """
-    Compute the Z_C1(r,dt) cut-based profile for a trajectory.
+    Compute the Z_C1(r, dt) cut-based profile for a trajectory.
 
-    Parameters:
-        r_traj (np.ndarray): The reaction coordinate trajectory.
-        b_traj (np.ndarray): The boundary indicator values for the trajectory.
-        future_boundary (bd.FutureBoundary, optional): Boundary object for future boundaries. Defaults to None.
-        past_boundary (bd.PastBoundary, optional): Boundary object for past boundaries. Defaults to None.
-        i_traj (np.ndarray, optional): The index trajectory. Defaults to None.
-        w_traj (np.ndarray, optional): The weight trajectory. Defaults to None.
-        dt (int, optional): The lag time to compute Z_{C,}(r,dt). Defaults to 1.
-        nbins (int, optional): Number of bins for the profile. Defaults to 1000.
+    Parameters
+    ----------
+    r_traj : np.ndarray
+        The reaction coordinate trajectory.
+    b_traj : np.ndarray
+        The boundary indicator values for the trajectory.
+    future_boundary : bd.FutureBoundary, optional
+        Boundary object for future boundaries. If None, it will be constructed from inputs.
+    past_boundary : bd.PastBoundary, optional
+        Boundary object for past boundaries. If None, it will be constructed from inputs.
+    i_traj : np.ndarray, optional
+        The index trajectory to distinguish between different trajectories.
+    w_traj : np.ndarray, optional
+        The weight trajectory for reweighting.
+    dt : int, optional
+        The lag time to compute Z_C1(r, dt). Default is 1.
+    nbins : int, optional
+        Number of bins for the profile. Default is 1000.
 
-    Returns:
-        tuple: A tuple containing bin edges and the Z_C1 profile.
+    Returns
+    -------
+    bin_edges : tf.Tensor
+        The edges of the histogram bins (length nbins + 1).
+    zc1 : tf.Tensor
+        The Z_C1 profile values (length nbins).
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
@@ -44,26 +89,28 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
     if w_traj is not None:
         delta_r = delta_r * w_traj[:-dt]
     bin_indices_r = tf.searchsorted(bin_edges, r_traj, side='right') - 1
-    hist = tf.math.bincount(bin_indices_r[:-dt], minlength=nbins + 1, weights=delta_r)
-    hist += tf.math.bincount(bin_indices_r[dt:], minlength=nbins + 1, weights=-delta_r)
+    bin_indices_r = np.clip(bin_indices_r, 0, len(bin_edges) - 2)
+    hist = tf.math.bincount(bin_indices_r[:-dt], minlength=nbins, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r[dt:], minlength=nbins, weights=-delta_r)
 
     # crossing of the future boundary
     delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj)
     delta_r = delta_r * tf.cast(future_boundary.delta_i_to_end >= delta_t_prec, dtype=r_traj.dtype)
     if w_traj is not None:
         delta_r = delta_r * w_traj
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=delta_r)
 
     # transitions between the boundaries
     delta_r01 = (i_future_boundary_crossed * b_traj * (delta_t_prec - future_boundary.delta_t2 + 1) *
                  (future_boundary.r2 - r_traj))
     if w_traj is not None:
         delta_r01 = delta_r01*w_traj
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=delta_r01)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=delta_r01)
 
     bin_indices = tf.searchsorted(bin_edges, future_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=-delta_r)
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=-delta_r01)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=-delta_r)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=-delta_r01)
 
     # crossing of the past boundary
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
@@ -71,8 +118,9 @@ def comp_zc1(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.FutureB
     if w_traj is not None:
         delta_r = delta_r * tf.gather(w_traj, tf.where(past_boundary.index2>-1, past_boundary.index2, 0))
     bin_indices = tf.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=-delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=-delta_r)
 
     zc1 = tf.cumsum(hist) / delta_t_prec / 2
     return bin_edges, zc1
@@ -81,23 +129,35 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
              past_boundary: bd.PastBoundary = None, i_traj: np.ndarray = None, w_traj : np.ndarray = None,
              dt = 1, nbins = 1000, dtmin=1):
     """
-    Computes the Z_C1(r,dt) profile for irregularly sampled trajectory data.
+    Compute the Z_C1(r, dt) profile for irregularly sampled trajectory data.
 
-    Parameters:
-        r_traj (np.ndarray): The reaction coordinate trajectory, array of shape (num_steps,).
-        b_traj (np.ndarray): The committor state array of shape (num_steps,).
-        future_boundary (bd.FutureBoundary): An instance of FutureBoundary for boundary information.
-        past_boundary (bd.PastBoundary): An instance of PastBoundary for boundary information.
-        i_traj (np.ndarray): The index trajectory array of shape (num_steps,). If provided, it will be used to enforce consistency in the data handling.
-        w_traj (np.ndarray): The weight trajectory array of shape (num_steps,). If provided, it will be used to account for different weights in the calculation.
-        dt (int, optional): The lag time to compute Z_{C,1}(r,dt). Defaults to 1.
-        nbins (int): Number of bins for the Z_C1 profile.
-        dtmin (float): Minimum time step allowed for valid crossings, defaults to 1.
+    Parameters
+    ----------
+    r_traj : np.ndarray
+        The reaction coordinate trajectory.
+    b_traj : np.ndarray
+        The committor state array.
+    future_boundary : bd.FutureBoundary, optional
+        Future boundary object. If None, it will be constructed from inputs.
+    past_boundary : bd.PastBoundary, optional
+        Past boundary object. If None, it will be constructed from inputs.
+    i_traj : np.ndarray, optional
+        Index trajectory to distinguish between different trajectories.
+    w_traj : np.ndarray, optional
+        Weight trajectory for reweighting.
+    dt : int, optional
+        Lag time to compute Z_C1(r, dt). Default is 1.
+    nbins : int, optional
+        Number of bins for the profile. Default is 1000.
+    dtmin : float, optional
+        Minimum time step allowed for valid crossings. Default is 1.
 
-    Returns:
-        tuple: A tuple containing two elements:
-            - bin_edges (np.ndarray): The edges of the histogram bins.
-            - zc1 (np.ndarray): The Z_C1 profile array of shape (nbins,).
+    Returns
+    -------
+    bin_edges : tf.Tensor
+        The edges of the histogram bins (length nbins + 1).
+    zc1 : tf.Tensor
+        The Z_C1 profile values (length nbins).
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
@@ -118,8 +178,7 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
     N=tf.cast(future_boundary.delta_i_to_end+past_boundary.delta_i_from_start+1, dtype=r_traj.dtype)
     N1=tf.where(N>delta_t_prec+0.1, (N-1.)/(N-delta_t_prec+0.0000001), 0)
     N=tf.cast(tf.where(N>dtmin, N1, 0),dtype=r_traj.dtype)
-    
-    
+
     # no crossings of boundaries
     delta_r = (1 - i_future_boundary_crossed[:-dt]) * (1 - i_past_boundary_crossed[dt:]) * (r_traj[dt:] - r_traj[:-dt])
     if i_traj is not None:
@@ -128,8 +187,9 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
         delta_r = delta_r * w_traj[:-dt]
     delta_r *= N[:-dt]
     bin_indices_r = tf.searchsorted(bin_edges, r_traj, side='right') - 1
-    hist = tf.math.bincount(bin_indices_r[:-dt], minlength=nbins + 1, weights=delta_r)
-    hist += tf.math.bincount(bin_indices_r[dt:], minlength=nbins + 1, weights=-delta_r)
+    bin_indices_r = np.clip(bin_indices_r, 0, len(bin_edges) - 2)
+    hist = tf.math.bincount(bin_indices_r[:-dt], minlength=nbins, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r[dt:], minlength=nbins, weights=-delta_r)
 
     # crossing of the future boundary
     delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj)
@@ -137,7 +197,7 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
     if w_traj is not None:
         delta_r = delta_r * w_traj
     delta_r *= N
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=delta_r)
 
     # transitions between the boundaries
     delta_r01 = (i_future_boundary_crossed * b_traj * (delta_t_prec - future_boundary.delta_t2 + 1) *
@@ -145,11 +205,12 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
     if w_traj is not None:
         delta_r01 = delta_r01*w_traj
     delta_r01 *= N
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=delta_r01)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=delta_r01)
 
     bin_indices = tf.searchsorted(bin_edges, future_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=-delta_r)
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=-delta_r01)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=-delta_r)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=-delta_r01)
 
     # crossing of the past boundary
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
@@ -158,8 +219,9 @@ def comp_zc1_irreg(r_traj: np.ndarray, b_traj: np.ndarray, future_boundary: bd.F
         delta_r = delta_r * tf.gather(w_traj, tf.where(past_boundary.index2>-1, past_boundary.index2, 0))
     delta_r *= N
     bin_indices = tf.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
-    hist += tf.math.bincount(bin_indices_r, minlength=nbins + 1, weights=-delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
+    hist += tf.math.bincount(bin_indices_r, minlength=nbins, weights=-delta_r)
 
     zc1 = tf.cumsum(hist) / delta_t_prec / 2
     return bin_edges, zc1
@@ -169,22 +231,37 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
             future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, w_traj : np.ndarray = None,
             dt=1, nbins=1000, log_scale=False, log_scale_pmin=1e-4):
     """
-    Compute the Z_q profile for a trajectory given by `r_traj` and boundary conditions defined by `b_traj`.
+    Compute the Z_q(r, dt) profile for a trajectory.
 
-    Parameters:
-        r_traj (np.ndarray): The trajectory data as an array of shape (num_points,).
-        b_traj (np.ndarray): Boundary condition data as an array of shape (num_points,).
-        i_traj (np.ndarray, optional): Indicator function for the trajectory. Defaults to None.
-        future_boundary (bd.FutureBoundary, optional): Future boundary object. Defaults to None.
-        past_boundary (bd.PastBoundary, optional): Past boundary object. Defaults to None.
-        w_traj (np.ndarray, optional): Weight array for trajectory data. Defaults to None.
-        dt (int, optional): The lag time to compute Z_q(r,dt). Defaults to 1.
-        nbins (int, optional): Number of bins for histogramming. Defaults to 1000.
-        log_scale (bool, optional): Whether to use logarithmic scale for bin edges. Defaults to False.
-        log_scale_pmin (float, optional): Minimum value for logarithmic scale. Defaults to 1e-4.
+    Parameters
+    ----------
+    r_traj : np.ndarray
+        The reaction coordinate trajectory.
+    b_traj : np.ndarray
+        The boundary indicator values.
+    i_traj : np.ndarray, optional
+        Index trajectory to distinguish between different trajectories.
+    future_boundary : bd.FutureBoundary, optional
+        Future boundary object. If None, it will be constructed from inputs.
+    past_boundary : bd.PastBoundary, optional
+        Past boundary object. If None, it will be constructed from inputs.
+    w_traj : np.ndarray, optional
+        Weight trajectory for reweighting.
+    dt : int, optional
+        Lag time to compute Z_q(r, dt). Default is 1.
+    nbins : int, optional
+        Number of bins for the profile. Default is 1000.
+    log_scale : bool, optional
+        Whether to use logarithmic binning. Default is False.
+    log_scale_pmin : float, optional
+        Minimum value for log-scale binning. Default is 1e-4.
 
-    Returns:
-        tuple: A tuple containing the bin edges and the Z_q profile array.
+    Returns
+    -------
+    bin_edges : tf.Tensor
+        The edges of the histogram bins (length nbins + 1).
+    zq : tf.Tensor
+        The Z_q profile values (length nbins).
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
@@ -216,21 +293,22 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
     if w_traj is not None:
         delta_r *= w_traj[:-dt]
     bin_indices = tf.searchsorted(bin_edges, r_traj, side='right') - 1
-    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins + 1, weights=delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins, weights=delta_r)
 
     # crossing of the future boundary
     delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj)
     delta_r = delta_r * tf.cast(future_boundary.delta_i_to_end >= delta_t_prec, dtype=r_traj.dtype)
     if w_traj is not None:
         delta_r *= w_traj
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
 
     # transitions between the boundaries
     delta_r01 = (i_future_boundary_crossed * b_traj * (delta_t_prec - future_boundary.delta_i2 + 1) *
                  (future_boundary.r2 - r_traj))
     if w_traj is not None:
         delta_r01 *= w_traj
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r01)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r01)
 
     # crossing of the past boundary
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2)
@@ -238,33 +316,47 @@ def comp_zq(r_traj: np.ndarray, b_traj: np.ndarray, i_traj: np.ndarray = None,
     if w_traj is not None:
         delta_r *= tf.gather(w_traj, tf.where(past_boundary.index2>-1, past_boundary.index2, 0))
     bin_indices = tf.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
 
     zc1 = tf.cumsum(hist) / delta_t_prec
     return bin_edges, zc1
 
 def comp_zt(r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray, i_traj: np.ndarray = None,
-            future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000, 
+            future_boundary: bd.FutureBoundary = None, past_boundary: bd.PastBoundary = None, dt=1, nbins=1000,
             log_scale=False, log_scale_tmin=1e-4):
     """
-    Compute the Z,t profile from MFPT RC.
+    Compute the Z_t(r, dt) profile based on MFPT reaction coordinate.
 
-    Parameters:
-        r_traj (np.ndarray): The main trajectory array representing the state variable.
-        b_traj (np.ndarray): The bias trajectory array, indicating whether a boundary is crossed.
-        t_traj (np.ndarray): The target trajectory array, used to compute transitions between boundaries.
-        i_traj (np.ndarray, optional): The indicator array for the main trajectory. Defaults to ones if not provided.
-        future_boundary (bd.FutureBoundary, optional): An instance of FutureBoundary class representing future boundaries.
-        past_boundary (bd.PastBoundary, optional): An instance of PastBoundary class representing past boundaries.
-        dt (int, optional): The lag time to compute Z_t(r,dt). Defaults to 1.
-        nbins (int, optional): The number of bins for histogramming. Defaults to 1000.
-        log_scale (bool, optional): Whether to use logarithmic scale for bin edges. Defaults to False.
-        log_scale_tmin (float, optional): A minimum value for the logarithmic scale if provided. Defaults to 1e-4.
-        
-    Returns:
-        tuple: A tuple containing two elements:
-            - bin_edges (np.ndarray): The edges of the histogram bins.
-            - Z_t (np.ndarray): The computed z profile along the trajectory.
+    Parameters
+    ----------
+    r_traj : np.ndarray
+        The reaction coordinate trajectory.
+    b_traj : np.ndarray
+        The boundary indicator values.
+    t_traj : np.ndarray
+        The time trajectory used for MFPT computation.
+    i_traj : np.ndarray, optional
+        Index trajectory to distinguish between different trajectories.
+    future_boundary : bd.FutureBoundary, optional
+        Future boundary object. If None, it will be constructed from inputs.
+    past_boundary : bd.PastBoundary, optional
+        Past boundary object. If None, it will be constructed from inputs.
+    dt : int, optional
+        Lag time to compute Z_t(r, dt). Default is 1.
+    nbins : int, optional
+        Number of bins for the profile. Default is 1000.
+    log_scale : bool, optional
+        Whether to use logarithmic binning. Default is False.
+    log_scale_tmin : float, optional
+        Minimum value for log-scale binning. Default is 1e-4.
+
+    Returns
+    -------
+    bin_edges : tf.Tensor
+        The edges of the histogram bins (length nbins + 1).
+    zt : tf.Tensor
+        The Z_t profile values (length nbins).
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
@@ -291,49 +383,62 @@ def comp_zt(r_traj: np.ndarray, b_traj: np.ndarray, t_traj: np.ndarray, i_traj: 
                                tf.cast(past_boundary.delta_i2 >= -delta_t_prec, dtype=r_traj.dtype))
 
     # no crossings of boundaries
-    delta_r = ((1 - i_future_boundary_crossed[:-dt]) * (1 - i_past_boundary_crossed[dt:]) * 
+    delta_r = ((1 - i_future_boundary_crossed[:-dt]) * (1 - i_past_boundary_crossed[dt:]) *
                 (r_traj[dt:] - r_traj[:-dt] + t_traj[dt:]-t_traj[:-dt]) *
                 tf.cast(i_traj[dt:] == i_traj[:-dt], dtype=r_traj.dtype))
     bin_indices = tf.searchsorted(bin_edges, r_traj, side='right') - 1
-    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins + 1, weights=delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins, weights=delta_r)
 
     # crossing of the future boundary
     delta_r = i_future_boundary_crossed * (1 - b_traj) * (future_boundary.r2 - r_traj + future_boundary.delta_t2)
     delta_r = delta_r * tf.cast(future_boundary.delta_i_to_end >= delta_t_prec, dtype=r_traj.dtype)
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
 
     # transitions between the boundaries
     delta_r01 = (i_future_boundary_crossed * b_traj * (delta_t_prec - future_boundary.delta_i2 + 1) *
                  (future_boundary.r2 - r_traj + future_boundary.delta_t2))
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r01)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r01)
 
     # crossing of the past boundary
     delta_r = i_past_boundary_crossed * (1 - b_traj) * (r_traj - past_boundary.r2-past_boundary.delta_t2)
     delta_r = delta_r * tf.cast(past_boundary.delta_i_from_start >= delta_t_prec, dtype=r_traj.dtype)
     bin_indices = tf.searchsorted(bin_edges, past_boundary.r2, side='right') - 1
-    hist += tf.math.bincount(bin_indices, minlength=nbins + 1, weights=delta_r)
+    bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
+    hist += tf.math.bincount(bin_indices, minlength=nbins, weights=delta_r)
 
     zc1 = tf.cumsum(hist) / delta_t_prec
     return bin_edges, zc1
 
 def comp_zca(r_traj, a, i_traj=None, w_traj=None, t_traj=None, nbins=1000, eps=1e-3, dt=1):
     """
-    Computes the $Z_{C,a}$ cut profile.
+    Compute the Z_{C,a}(r, dt) cut profile with exponent a.
 
-    Parameters:
-        r_traj (TensorFlow Tensor): RC timeseries data.
-        a (int or float): Exponent of the cut profile.
-        i_traj (TensorFlow Tensor, optional): Array mapping from total aggregated trajectory frame to trajectory number. Defaults to None.
-        w_traj (TensorFlow Tensor, optional): Re-weighting factor. Defaults to None.
-        t_traj (TensorFlow Tensor, optional): Time along trajectories for non-constant delta t. Defaults to None.
-        nbins (int, optional): Number of bins in the histogram. Defaults to 1000.
-        eps (float, optional): Lower bound for delta_r in computing delta_r^a when delta_r < 0. Defaults to 1e-3.
-        dt (int, optional): The lag time to compute Z_{C,a}(r,dt). Defaults to 1.
-        
-    Returns:
-        tuple: A tuple containing:
-            bin_edges (TensorFlow Tensor): Array of bin edges positions.
-            Z_{C,a} (TensorFlow Tensor): Array of values of ZCa at these positions.
+    Parameters
+    ----------
+    r_traj : tf.Tensor
+        Reaction coordinate trajectory.
+    a : float
+        Exponent for the cut profile.
+    i_traj : tf.Tensor, optional
+        Index trajectory to distinguish between different trajectories.
+    w_traj : tf.Tensor, optional
+        Weight trajectory for reweighting.
+    t_traj : tf.Tensor, optional
+        Time trajectory for non-uniform time steps.
+    nbins : int, optional
+        Number of bins for the profile. Default is 1000.
+    eps : float, optional
+        Small value to avoid division by zero or log of zero. Default is 1e-3.
+    dt : int, optional
+        Lag time to compute Z_{C,a}(r, dt). Default is 1.
+
+    Returns
+    -------
+    bin_edges : tf.Tensor
+        The edges of the histogram bins (length nbins + 1).
+    zca : tf.Tensor
+        The Z_{C,a} profile values (length nbins).
     """
     r_min = tf.math.reduce_min(r_traj)
     r_max = tf.math.reduce_max(r_traj)
@@ -361,7 +466,7 @@ def comp_zca(r_traj, a, i_traj=None, w_traj=None, t_traj=None, nbins=1000, eps=1
 
     delta_ra=tf.cast(delta_ra,tf.float64)
     # Compute the histogram counts
-    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins + 1, weights=delta_ra)
-    hist += tf.math.bincount(bin_indices[dt:], minlength=nbins + 1, weights=-delta_ra)
+    hist = tf.math.bincount(bin_indices[:-dt], minlength=nbins, weights=delta_ra)
+    hist += tf.math.bincount(bin_indices[dt:], minlength=nbins, weights=-delta_ra)
     zca = tf.cumsum(hist)/2/dt
     return bin_edges, zca

@@ -8,8 +8,9 @@ import tensorflow as tf
 
 class TestPlots(unittest.TestCase):
     def test_2f4k(self):
-        import pickle
-        f = open('data/q-SOTA.pkl', 'rb')
+        import pickle, os
+        file_path = os.path.join(os.path.dirname(__file__), "data", "q-SOTA.pkl")
+        f = open(file_path, 'rb')
         r_traj = pickle.load(f)
         #r_traj = tf.convert_to_tensor(r_traj)
         #f.close()

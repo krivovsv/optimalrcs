@@ -8,7 +8,7 @@ ldt0 = [2**i for i in range(16)]
 
 def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None,
              ldt=None, xlabel='$q$', ln=True, w_traj=None, dtmin=1):
-    if (ldt is None):
+    if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
         r_traj = r_traj.numpy()
@@ -20,10 +20,11 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
     for dt in ldt:
         lx, ly = cut_profiles.comp_zc1_irreg(r_traj, b_traj, future_boundary, past_boundary,
                                 dt=tf.constant(dt), i_traj=i_traj, w_traj=w_traj, dtmin=dtmin)
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
 
     if ln:
         ax.set(ylabel='$-\\ln Z_{C,1}$', xlabel=xlabel)
@@ -46,13 +47,14 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
     for dt in ldt:
         lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary,
                                       dt=tf.constant(dt), w_traj=w_traj)
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
         if force0 : ly-=ly[0]
-        if forcemean0 : ly-=tf.math.reduce_mean(ly[:-1])
+        if forcemean0 : ly-=tf.math.reduce_mean(ly)
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
             ylabel = '$-\\ln Z_q$'
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
             ylabel = '$Z_q$'
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
@@ -70,12 +72,13 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 
     for dt in ldt:
         lx, ly = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
         if force0 : ly-=ly[0]
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
             ylabel = '$-\\ln Z_t$'
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
             ylabel = '$Z_t$'
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
@@ -86,7 +89,8 @@ def plot_fep(ax, r_traj, i_traj=None, t_traj=None, w_traj=None, xlabel='$q$', na
         r_traj = transform_q2qn(r_traj, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, dt_sim=dt_sim)
         if xlabel=='$q$': xlabel='$\\tilde{q}$'
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj)
-    ax.plot(lx[:-2], -np.log(2 * lzh[:-2]), lt)
+    lx = (lx[1:]+lx[:-1])/2 # mid point for bin x position
+    ax.plot(lx[:-1], -np.log(2 * lzh[:-1]), lt)
     ax.set(ylabel='$F/kT$', xlabel=xlabel)
     ax.grid()
 
@@ -104,7 +108,7 @@ def transform_q2qn(r_traj, i_traj=None, t_traj=None, w_traj=None, nbins=10000, d
     from scipy.interpolate import UnivariateSpline
 
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, nbins=nbins)
-    lzh = lzh * 2
+    lx, lzh = (lx[1:]+lx[:-1])/2, lzh * 2
 
     _, lzc1 = cut_profiles.comp_zca(r_traj, a=1, i_traj=i_traj, w_traj=w_traj, nbins=nbins)
     ld = np.sqrt((lzc1 + 1) / (lzh + 1))

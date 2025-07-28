@@ -16,7 +16,7 @@ class TestZC1(unittest.TestCase):
         pb = bd.PastBoundary(r_traj, b_traj)
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, fb, pb)
         npt.assert_array_almost_equal(lx, np.linspace(0.4, 0.8, 1001, True))
-        lz1 = np.ones(1001)
+        lz1 = np.ones(1000)
         lz1[:250] = 0.05
         lz1[250:] = 0.15
         lz1[-1] = 0
@@ -29,12 +29,12 @@ class TestZC1(unittest.TestCase):
         pb = bd.PastBoundary(r_traj, b_traj)
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, fb, pb)
         npt.assert_array_almost_equal(lx, np.linspace(0, 1, 1001, True))
-        lz1 = np.ones(1001)
+        lz1 = np.ones(1000)
         lz1[-1] = 0
         npt.assert_array_almost_equal(lz, lz1)
 
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, fb, pb, dt=10)
-        lz1 = np.ones(1001)
+        lz1 = np.ones(1000)
         lz1[-1] = 0
         npt.assert_array_almost_equal(lz, lz1)
 
@@ -43,12 +43,12 @@ class TestZC1(unittest.TestCase):
         b_traj = np.asarray([1, 1, 1])
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj)
         npt.assert_array_almost_equal(lx, np.linspace(0, 1, 1001, True))
-        lz1 = np.ones(1001)
+        lz1 = np.ones(1000)
         lz1[-1] = 0
         npt.assert_array_almost_equal(lz, lz1)
 
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=10)
-        lz1 = np.ones(1001)
+        lz1 = np.ones(1000)
         lz1[-1] = 0
         npt.assert_array_almost_equal(lz, lz1)
 
@@ -59,15 +59,16 @@ class TestZC1(unittest.TestCase):
         pb = bd.PastBoundary(r_traj, b_traj)
         lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, fb, pb, nbins=10)
         npt.assert_array_almost_equal(lx, np.linspace(0, 1, 11, True))
-        lz1 = np.ones(11)
+        lz1 = np.ones(10)
         lz1[:4] = 0.2
         lz1[4:] = 0.3
         lz1[-1] = 0
+        print
         npt.assert_array_almost_equal(lz, lz1)
 
 
 def integrate(lx, lz):
-    return tf.reduce_sum((lx[1:]-lx[:-1])*(lz[1:]+lz[:-1])/2)
+    return tf.reduce_sum((lx[1:]-lx[:-1])*lz)
 
 
 def random_walks(mtraj, msteps):
