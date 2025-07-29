@@ -9,12 +9,18 @@ description = "A Python package for optimal reaction coordinates"
 authors = [
     { name = "Sergei Krivov", email = "S.Krivov@leeds.ac.uk" }
 ]
-#readme = "README.md"
+readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "MIT" }
 dependencies = [
     # Add your dependencies here, for example:
-    # "numpy>=1.21.0",
+    # "numpy>=1.23.0",
     # "pandas>=1.3.0",
+    # "matplotlib>=3.5.2",
+    # "scikit_learn>=1.1.2",
+    # "scipy>=1.9.0",
+    # "statsmodels>=0.13.5",
+    # "tensorflow>=2.6.0"
 ]
 
 [project.urls]
