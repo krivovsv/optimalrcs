@@ -1,5 +1,9 @@
-import numpy as np
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import unittest
+import numpy as np
 import optimalrcs.optimalrcs as optimalrcs
 import optimalrcs.metrics as metrics
 
@@ -44,10 +48,10 @@ class TestMFPTNE(unittest.TestCase):
         def comp_y():
             return r_traj
 
-        def gamma(iter, max_iter):
+        def gamma(iteration, max_iter):
             return 0.5
 
-        def envelope(r_traj, iter, max_iter):
+        def envelope(r_traj, iteration, max_iter):
             return np.ones_like(r_traj)
 
         np.random.seed(0)

@@ -1,10 +1,14 @@
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import unittest
-import optimalrcs.boundaries as bd
 import numpy as np
 import numpy.testing as npt
+import tensorflow as tf
+import optimalrcs.boundaries as bd
 import optimalrcs.cut_profiles as cut_profiles
 import optimalrcs.metrics as metrics
-import tensorflow as tf
 
 
 class TestZC1(unittest.TestCase):
@@ -63,7 +67,6 @@ class TestZC1(unittest.TestCase):
         lz1[:4] = 0.2
         lz1[4:] = 0.3
         lz1[-1] = 0
-        print
         npt.assert_array_almost_equal(lz, lz1)
 
 
@@ -77,7 +80,7 @@ def random_walks(mtraj, msteps):
     i_traj = []
     for i in range(mtraj):
         x0 = np.random.random()
-        for step in range(msteps):
+        for _ in range(msteps):
             x0 = x0 + 0.1 * (np.random.random() - 0.5)
             if x0 > 1:
                 x0 = 1
@@ -104,7 +107,7 @@ def random_walk(ntraj, nsteps):
         r_traj[k]=x/10
         i_traj[k]=i
         k=k+1
-        for j in range(1,nsteps):
+        for _ in range(1,nsteps):
             x=x+np.random.choice((1,-1))
             if x<0:x=1
             if x>10:x=9
@@ -163,10 +166,10 @@ class TestZq(unittest.TestCase):  # compare dr2 computed from the profile and di
         for dt in ldt:
             r_traj = np.asarray([0., 0.2, 0.5, 0.7, 1.0])
             b_traj = np.asarray([1, 0, 0, 0, 1])
-            lx, lz1 = cut_profiles.comp_zq(r_traj, b_traj, dt=dt)
-            lx, lz2 = cut_profiles.comp_zq(r_traj[::-1], b_traj[::-1], dt=dt)
+            _, lz1 = cut_profiles.comp_zq(r_traj, b_traj, dt=dt)
+            _, lz2 = cut_profiles.comp_zq(r_traj[::-1], b_traj[::-1], dt=dt)
             val = (lz1+lz2)/2
-            lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt)
+            _, lz = cut_profiles.comp_zc1(r_traj, b_traj, dt=dt)
             npt.assert_array_almost_equal(lz.numpy(), val.numpy())
 
     def test_random_walks(self):
@@ -174,10 +177,10 @@ class TestZq(unittest.TestCase):  # compare dr2 computed from the profile and di
             np.random.seed(seed)
             r_traj, b_traj, i_traj = random_walks(10, 200)
             for dt in ldt:
-                lx, lz1 = cut_profiles.comp_zq(r_traj, b_traj, i_traj, dt=dt)
-                lx, lz2 = cut_profiles.comp_zq(r_traj[::-1], b_traj[::-1], i_traj[::-1], dt=dt)
+                _, lz1 = cut_profiles.comp_zq(r_traj, b_traj, i_traj, dt=dt)
+                _, lz2 = cut_profiles.comp_zq(r_traj[::-1], b_traj[::-1], i_traj[::-1], dt=dt)
                 val = (lz1 + lz2) / 2
-                lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, i_traj=i_traj, dt=dt)
+                _, lz = cut_profiles.comp_zc1(r_traj, b_traj, i_traj=i_traj, dt=dt)
                 npt.assert_array_almost_equal(lz.numpy(), val.numpy())
 
 
@@ -194,9 +197,9 @@ class TestZCa(unittest.TestCase):  # compare dr2 computed from the profile and d
         for seed in range(10):
             np.random.seed(seed)
             r_traj, b_traj, i_traj = random_walks(10, 200)
-            for dt in ldt:
-                lx, lz = cut_profiles.comp_zc1(r_traj, b_traj, i_traj=i_traj, dt=1)
-                lx1, lz1 = cut_profiles.comp_zca(r_traj, 1, i_traj=i_traj, dt=1)
+            for dt in [1,]: # no path summation in zca
+                _, lz = cut_profiles.comp_zc1(r_traj, b_traj, i_traj=i_traj, dt=dt)
+                _, lz1 = cut_profiles.comp_zca(r_traj, 1, i_traj=i_traj, dt=dt)
                 npt.assert_array_almost_equal(lz.numpy(), lz1.numpy())
 
 

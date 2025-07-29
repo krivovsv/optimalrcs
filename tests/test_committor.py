@@ -1,6 +1,10 @@
-import numpy as np
-import unittest
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import os
+import unittest
+import numpy as np
 import optimalrcs.optimalrcs as optimalrcs
 import optimalrcs.metrics as metrics
 

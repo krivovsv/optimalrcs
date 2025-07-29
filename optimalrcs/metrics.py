@@ -1,8 +1,14 @@
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
+import time
+import numpy as np
 import tensorflow as tf
 import optimalrcs.boundaries as bd
 import optimalrcs.cut_profiles as cut_profiles
-import numpy as np
-import time
+
+
 
 
 def _delta_r2_eq_dt1(r_traj):
@@ -267,7 +273,7 @@ def delta_x(rc):
     return _delta_x(rc.r_traj, rc.r_traj_old)
 
 def iteration(rc):
-    return rc.iter
+    return rc.iteration
 
 def i_mfpt(rc):
     dti=(tf.square(rc.r_traj[1:] - rc.r_traj[:-1]) - 2 *
@@ -275,7 +281,7 @@ def i_mfpt(rc):
     if rc.i_traj is not None:
         dti=dti*tf.cast(rc.i_traj[1:]==rc.i_traj[:-1],rc.prec)
     return tf.math.reduce_mean(dti).numpy()
-    
+
 def low_bound_i_mfpt_eq(rc):
     dti = rc.future_boundary.delta_t[1:][rc.b_traj[:-1] > 0][:-1] + 1
     return -sum(dti**2) / len(rc.b_traj)

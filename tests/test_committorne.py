@@ -1,6 +1,10 @@
-import numpy as np
-import unittest
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import os
+import unittest
+import numpy as np
 import optimalrcs.optimalrcs as optimalrcs
 import optimalrcs.metrics as metrics
 
@@ -44,10 +48,10 @@ class TestCommittorNE(unittest.TestCase):
         def comp_y():
             return r_traj
 
-        def gamma(iter, max_iter):
+        def gamma(iteration, max_iter):
             return 0.5
 
-        def envelope(r_traj, iter, max_iter):
+        def envelope(r_traj, iteration, max_iter):
             return np.ones_like(r_traj)
 
         q.fit_transform(comp_y=comp_y, envelope=envelope, gamma=gamma, max_iter=1, min_delta_x=1e-4, print_step=1)

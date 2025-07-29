@@ -1,7 +1,11 @@
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import unittest
-import optimalrcs.boundaries as boundaries
 import numpy as np
 import numpy.testing as npt
+import optimalrcs.boundaries as boundaries
 
 
 class TestFutureBoundary(unittest.TestCase):
@@ -97,6 +101,6 @@ class TestPastBoundary(unittest.TestCase):
         npt.assert_array_equal(pb.delta_t2, np.asarray([0, -2, -3, 0, 0]))
 
 
-
 if __name__ == '__main__':
     unittest.main()
+    

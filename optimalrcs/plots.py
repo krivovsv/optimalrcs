@@ -1,5 +1,9 @@
-import tensorflow as tf
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import numpy as np
+import tensorflow as tf
 from . import cut_profiles, metrics
 from . import boundaries as bd
 
@@ -309,7 +313,7 @@ def plot_bootstrap_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, pas
         results = model.fit()
         y_pred = results.predict(X)
         ax.plot(x, y_pred, 'g-', label='~ size + size$^2$, F-stat = %g' %results.fvalue, alpha=0.6)
-    
+
     ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='data size', ylabel='sd. of $Z_q$', xscale='log', yscale='log')
     ax.legend()
     ax.grid()
@@ -343,7 +347,7 @@ def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=N
             ax.plot(ldti,lsd,'ro')
             ldti=[]
             lsd=[]
-            
+
     ax.plot(ldti,lsd,'bx')
     ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
 
@@ -369,5 +373,5 @@ def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_bounda
             ax.plot(lx,lz,'r-')
         else:
             ax.plot(lx,lz,'b:')
-            
+ 
     ax.set(title='Bootstrap analysis of $Z_q$', xlabel='q', ylabel='$Z_q$')
