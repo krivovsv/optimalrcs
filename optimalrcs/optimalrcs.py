@@ -973,7 +973,7 @@ class Committor(CommittorNE):
             metrics_print = 'iteration', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
         _envelope = 1 - self.b_traj
 
-        for self.iter in range(max_iter + 1):
+        for self.iteration in range(max_iter + 1):
 
             # compute next CV y, and cast it to the required accuracy
             y = tf.cast(comp_y(), self.prec)
