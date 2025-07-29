@@ -979,8 +979,8 @@ class Committor(CommittorNE):
             y = tf.cast(comp_y(), self.prec)
 
             # compute envelope, modulating the basis functions
-            if self.iter % 10 == 0 and callable(envelope):
-                _envelope = envelope(self.r_traj, self.iter, max_iter) * (1 - self.b_traj)
+            if self.iteration % 10 == 0 and callable(envelope):
+                _envelope = envelope(self.r_traj, self.iteration, max_iter) * (1 - self.b_traj)
 
             # compute the basis functions
             fk = basis_functions(self.r_traj, y, ny, _envelope)
@@ -989,11 +989,11 @@ class Committor(CommittorNE):
             self.r_traj = nonparametrics.npq(self.r_traj, fk, self.i_traj)
 
             # compute and print various metrics
-            if self.iter % print_step == 0:
+            if self.iteration % print_step == 0:
                 self._compute_metrics(metrics_print)
                 self._print_metrics(metrics_print)
                 self.r_traj_old = self.r_traj
-                if self.iter > 0:
+                if self.iteration > 0:
                     if save_min_delta_zq:
                         if self.metrics_history['max_sd_zq'][-1] < self.min_delta_zq:
                             self.min_delta_zq = self.metrics_history['max_sd_zq'][-1]
