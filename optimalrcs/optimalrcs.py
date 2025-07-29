@@ -998,7 +998,7 @@ class Committor(CommittorNE):
         """
         self.time_start = time.time()
         if metrics_print is None:
-            metrics_print = 'iter', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
+            metrics_print = 'iteration', 'cross_entropy', 'mse', 'max_sd_zq', 'max_grad_zq', 'delta_r2', 'auc', 'delta_x', 'time_elapsed'
         _envelope = (1 - self.b_traj)
         if not callable(gamma):
             _gamma = tf.constant(gamma, dtype=self.prec)
