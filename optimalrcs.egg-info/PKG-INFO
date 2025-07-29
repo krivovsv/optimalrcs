@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: optimalrcs
-Version: 0.1.0
-Summary: A Python package for optimal reaction coordinates
-Author-email: Sergei Krivov <S.Krivov@leeds.ac.uk>
-Project-URL: Homepage, https://github.com/krivovsv/optimalrcs
-Project-URL: Repository, https://github.com/krivovsv/optimalrcs
-Requires-Python: >=3.8
