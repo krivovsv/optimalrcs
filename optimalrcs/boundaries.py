@@ -1,3 +1,7 @@
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import numpy as np
 
 
@@ -5,7 +9,7 @@ class FutureBoundary:
     """
     class to contain information about boundaries in the future, to correctly describe martingale at the boundaries
     self.index[i] - index of the next boundary in the future for the current point with index i
-            if i is a boundary itself, then index[i[]=i
+            if i is a boundary itself, then index[i]=i
     self.r[i] - r value of the next boundary in the future
     self.delta_i - difference in indices between the current point and the future boundary
     self.index2[i] - index for the next boundary in the future for the current point eith index i, however
@@ -35,9 +39,7 @@ class FutureBoundary:
         #else:
         #    self.set_distance_to_end(i_traj)
 
-        # set distance to end to limit the length when extending segments with boundary states so that they do not
-        # go over the original trajectory length 
-        self.delta_i_to_end = np.zeros(n, 'int32')  # distance to the boundary in the future
+        self.delta_i_to_end = np.zeros(n, 'int32')  # index of the boundary in the future
         delta_i_to_end_current = 0
         for i in range(n - 2, -1, -1):
             delta_i_to_end_current += 1
@@ -68,7 +70,7 @@ class FutureBoundary:
         self.delta_i_to_end=np.zeros_like(i_traj)
         for i_start, i_end in zip(traj_starts, traj_ends):
             self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
-
+            
     def set_distance_to_end_fixed_traj_length_trap(self, i_traj, trap_boundary, traj_length):
         traj_ends=np.where(np.roll(i_traj,-1)!=i_traj)[0]
         traj_starts=np.concatenate(([0],traj_ends[:-1]+1))
@@ -97,7 +99,7 @@ class FutureBoundary:
             for i_start, i_end in zip(traj_starts, traj_ends):
                 self.delta_i_to_end[i_start:i_end+1] = range(i_end-i_start,-1,-1)
                 if trap_boundary[i_end]:
-                    traj_length=int(-np.log(np.random.random())*average_traj_length-1)
+                    traj_length=int(-np.log(np.random.random())*average_traj_length -1)
                     self.delta_i_to_end[i_start:i_end+1] += traj_length
             
 class PastBoundary:

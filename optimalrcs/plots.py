@@ -1,13 +1,17 @@
-import optimalrcs.cut_profiles as cut_profiles, optimalrcs.metrics as metrics
-import optimalrcs.boundaries as bd
-import tensorflow as tf
+# Copyright (c) 2025 Sergei Krivov
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license information.
+
 import numpy as np
+import tensorflow as tf
+from . import cut_profiles, metrics
+from . import boundaries as bd
 
 ldt0 = [2**i for i in range(16)]
 
 
-def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-             ln=True, w_traj=None):
+def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None,
+             ldt=None, xlabel='$q$', ln=True, w_traj=None, dtmin=1):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -18,22 +22,23 @@ def plot_zc1(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundar
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
     for dt in ldt:
-        lx, ly = cut_profiles.comp_zc1(r_traj, b_traj, future_boundary, past_boundary, dt=tf.constant(dt),
-                                       i_traj=i_traj, w_traj=w_traj)
+        lx, ly = cut_profiles.comp_zc1_irreg(r_traj, b_traj, future_boundary, past_boundary,
+                                dt=tf.constant(dt), i_traj=i_traj, w_traj=w_traj, dtmin=dtmin)
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
 
     if ln:
-        ax.set(ylabel='$-\ln Z_{C,1}$', xlabel=xlabel)
+        ax.set(ylabel='$-\\ln Z_{C,1}$', xlabel=xlabel)
     else:
         ax.set(ylabel='$Z_{C,1}$', xlabel=xlabel)
     ax.grid()
 
 
-def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$q$',
-            ln=False):
+def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None,
+            xlabel='$q$', w_traj=None, ln=False, force0=False, forcemean0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -44,18 +49,22 @@ def plot_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary
         past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
 
     for dt in ldt:
-        lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        lx, ly = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary,
+                                      dt=tf.constant(dt), w_traj=w_traj)
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
+        if force0 : ly-=ly[0]
+        if forcemean0 : ly-=tf.math.reduce_mean(ly)
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
-            ylabel = '$-\ln Z_q$'
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
+            ylabel = '$-\\ln Z_q$'
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
             ylabel = '$Z_q$'
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
 
-def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None, ldt=None, xlabel='$mfpt$',
-            ln=False):
+def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_boundary=None,
+            ldt=None, xlabel='$\\tau$', ln=False, force0=False):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -67,11 +76,13 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 
     for dt in ldt:
         lx, ly = cut_profiles.comp_zt(r_traj, b_traj, t_traj, i_traj, future_boundary, past_boundary, dt=tf.constant(dt))
+        lx, ly = (lx[1:]+lx[:-1])[:-1]/2, ly[:-1] # mid point for bin x position, skipping last point
+        if force0 : ly-=ly[0]
         if ln:
-            ax.plot(lx.numpy()[:-1], -np.log(ly.numpy()[:-1]))
-            ylabel = '$-\ln Z_t$'
+            ax.plot(lx.numpy(), -np.log(ly.numpy()))
+            ylabel = '$-\\ln Z_t$'
         else:
-            ax.plot(lx.numpy()[:-1], ly.numpy()[:-1])
+            ax.plot(lx.numpy(), ly.numpy())
             ylabel = '$Z_t$'
     ax.set(ylabel=ylabel, xlabel=xlabel)
     ax.grid()
@@ -80,8 +91,10 @@ def plot_zt(ax, r_traj, b_traj, t_traj, i_traj=None, future_boundary=None, past_
 def plot_fep(ax, r_traj, i_traj=None, t_traj=None, w_traj=None, xlabel='$q$', natural=False, dt_sim=1, lt='r-'):
     if natural:
         r_traj = transform_q2qn(r_traj, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, dt_sim=dt_sim)
+        if xlabel=='$q$': xlabel='$\\tilde{q}$'
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj)
-    ax.plot(lx[:-2], -np.log(2 * lzh[:-2]), lt)
+    lx = (lx[1:]+lx[:-1])/2 # mid point for bin x position
+    ax.plot(lx[:-1], -np.log(2 * lzh[:-1]), lt)
     ax.set(ylabel='$F/kT$', xlabel=xlabel)
     ax.grid()
 
@@ -99,9 +112,9 @@ def transform_q2qn(r_traj, i_traj=None, t_traj=None, w_traj=None, nbins=10000, d
     from scipy.interpolate import UnivariateSpline
 
     lx, lzh = cut_profiles.comp_zca(r_traj, a=-1, i_traj=i_traj, t_traj=t_traj, w_traj=w_traj, nbins=nbins)
-    lzh = lzh * 2
+    lx, lzh = (lx[1:]+lx[:-1])/2, lzh * 2
 
-    lx1, lzc1 = cut_profiles.comp_zca(r_traj, a=1, i_traj=i_traj, w_traj=w_traj, nbins=nbins)
+    _, lzc1 = cut_profiles.comp_zca(r_traj, a=1, i_traj=i_traj, w_traj=w_traj, nbins=nbins)
     ld = np.sqrt((lzc1 + 1) / (lzh + 1))
 
     # r2delta_rds = UnivariateSpline(lx, ld, s=0)
@@ -134,6 +147,7 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         nab = tf.where(future_boundary.index[istart:iend] > -1, one, zero)
         nd = tf.where(future_boundary.index[istart:iend] > -1, zero, one)
         bin_indices = tf.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_nb = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nb)
         hist_nab = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nab)
         hist_nd = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nd)
@@ -150,14 +164,14 @@ def plot_obs_pred_q(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
     if halves:
         obs_pred(0, len(r_traj)//2, ':g', 'obs vs pred 1/2', ax)
         obs_pred(len(r_traj)//2, -1, ':b', 'obs vs pred 2/2', ax)
-    ax.plot((0, 1), (0, 1), ':k', label='obs = pred')
-    ax.set(xlabel='pB predicted', ylabel='pB observed')
+    ax.plot((0, 1), (0, 1), '--k', label='obs = pred')
+    ax.set(xlabel='$p_B$ predicted', ylabel='$p_B$ observed')
     if log_scale:
         ax.set(xscale='log', yscale='log')
     ax.legend()
     ax.grid()
     if ax2 is not None:
-        ax2.set(xlabel='pB predicted', ylabel='#', yscale='log')
+        ax2.set(xlabel='$p_B$ predicted', ylabel='#', yscale='log')
         #ax2.set_yscale('log')
         ax2.legend()
         ax2.grid()
@@ -187,6 +201,7 @@ def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         na = tf.where(future_boundary.index[istart:iend] > -1, one, zero)
         nd = tf.where(future_boundary.index[istart:iend] > -1, zero, one)
         bin_indices = tf.searchsorted(bin_edges, r_traj[istart:iend], side='right') - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 2)
         hist_ta = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=ta)
         hist_na = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=na)
         hist_nd = tf.math.bincount(bin_indices, minlength=nbins + 1, weights=nd)
@@ -203,7 +218,7 @@ def plot_obs_pred_t(ax, r_traj, future_boundary, nbins=100, halves=True, ax2=Non
         obs_pred(0, len(r_traj)//2, ':g', 'obs vs pred 1/2', ax)
         obs_pred(len(r_traj)//2, -1, ':b', 'obs vs pred 2/2', ax)
     ax.plot((r_min, r_max), (r_min, r_max), ':k', label='obs = pred')
-    ax.set(xlabel='mfpt predicted', ylabel='mfpt observed')
+    ax.set(xlabel='$\\tau$ predicted', ylabel='$\\tau$ observed')
     if log_scale:
         ax.set(xscale='log', yscale='log')
     ax.legend()
@@ -227,6 +242,12 @@ def plot_roc_curve(ax, r_traj, future_boundary, log_scale=False):
     ax.plot(fpr[1:], thresh[1:], 'r-', label='threshold')
     auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok], r_traj[ok])
     ax.plot(fpr, tpr, 'b-', label='tpr, AUC: %.2f%%' % (auc * 100))
+    ### without boundaries
+    ok = (ok) & (future_boundary.delta_i!=0)
+    fpr, tpr, thresh = sklearn.metrics.roc_curve(future_boundary.r[ok], r_traj[ok])
+    ax.plot(fpr[1:], thresh[1:], 'r:', label='threshold no bd')
+    auc = sklearn.metrics.roc_auc_score(future_boundary.r[ok], r_traj[ok])
+    ax.plot(fpr, tpr, 'b:', label='tpr no bd, AUC: %.2f%%' % (auc * 100))
     if log_scale:
         ax.set(xscale='log', xlabel='False positive rate', ylabel='True positive rate')
     else:
@@ -234,7 +255,70 @@ def plot_roc_curve(ax, r_traj, future_boundary, log_scale=False):
     ax.legend()
     ax.grid()
 
-def plot_bootstrap_sd_zq(ax,r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, ldt=None, mseed=10):
+def plot_pr_curve(ax, r_traj, future_boundary, log_scale=False):
+    import sklearn.metrics
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+
+    ok = future_boundary.index > -1
+    precision, recall, thresh = sklearn.metrics.precision_recall_curve(future_boundary.r[ok], r_traj[ok])
+    ax.plot(recall[1:], thresh, 'r-', label='threshold')
+    auc_pr = sklearn.metrics.auc(recall, precision)
+    ax.plot(recall, precision, 'b-', label='precision, AUC: %.2f%%' % (auc_pr * 100))
+    if log_scale:
+        ax.set(xscale='log', xlabel='recall (TPR)', ylabel='precision')
+    else:
+        ax.set(xlabel='recall (TPR)', ylabel='precision')
+    ax.legend()
+    ax.grid()
+    
+def plot_bootstrap_zq(ax, r_traj, b_traj, i_traj=None, future_boundary=None, past_boundary=None, lp=None, t=2):
+    if tf.is_tensor(r_traj):
+        r_traj = r_traj.numpy()
+    if future_boundary is None:
+        future_boundary = bd.FutureBoundary(r_traj, b_traj, i_traj=i_traj)
+    if past_boundary is None:
+        past_boundary = bd.PastBoundary(r_traj, b_traj, i_traj=i_traj)
+
+    lx=[]
+    ly=[]
+    if lp is None:
+        lp=[0.5**i for i in range(11)]
+    for p in lp:
+        w_traj = np.random.poisson(lam=p, size=len(r_traj))
+        sd_zq=metrics._comp_max_delta_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj = w_traj)[2]
+        lx.append(sum(w_traj))
+        ly.append(sd_zq**2)
+    
+    import statsmodels.api as sm
+
+    x=np.asarray(lx)
+    y=np.asarray(ly)
+
+    model = sm.OLS(y, x)
+    results = model.fit()
+    y_pred = results.predict(x)
+
+    ax.scatter(x, y, label='Data', color='blue', alpha=0.6)
+    ax.plot(x, y_pred, 'r-', label='~ size, F-stat = %g' %results.fvalue, alpha=0.6)
+
+    if t==2:
+        model = sm.OLS(y, x*x)
+        results = model.fit()
+        y_pred = results.predict(x*x)
+        ax.plot(x, y_pred, 'g-', label='~ size$^2$, F-stat = %g' %results.fvalue, alpha=0.6)
+    if t==3:
+        X = np.column_stack((x, x*x))
+        model = sm.OLS(y, X)
+        results = model.fit()
+        y_pred = results.predict(X)
+        ax.plot(x, y_pred, 'g-', label='~ size + size$^2$, F-stat = %g' %results.fvalue, alpha=0.6)
+
+    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='data size', ylabel='sd. of $Z_q$', xscale='log', yscale='log')
+    ax.legend()
+    ax.grid()
+
+def plot_bootstrap_sd_zq(ax, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, ldt=None, mseed=10):
     if ldt is None:
         ldt = ldt0
     if tf.is_tensor(r_traj):
@@ -247,13 +331,14 @@ def plot_bootstrap_sd_zq(ax,r_traj, b_traj=None, i_traj=None, future_boundary=No
     ldti=[]
     lsd=[]
     for seed in range(mseed):
-        np.random.seed(seed)
+        np.random.seed(seed+100)
         if seed==0:
             w_traj = np.ones_like(r_traj)
         else:
             w_traj = np.random.poisson(lam=1, size=len(r_traj))
+            w_traj = np.array(w_traj, dtype=r_traj.dtype)
         for dt in ldt:
-            lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
+            _, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
             lz = lz[:-1].numpy()
             m2 = np.mean((lz - np.mean(lz)) ** 2)**0.5
             ldti.append(dt)
@@ -262,9 +347,9 @@ def plot_bootstrap_sd_zq(ax,r_traj, b_traj=None, i_traj=None, future_boundary=No
             ax.plot(ldti,lsd,'ro')
             ldti=[]
             lsd=[]
-            
+
     ax.plot(ldti,lsd,'bx')
-    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
+    ax.set(title='Bootstrap analysis of sd. of $Z_q$', xlabel='$\\Delta t$', ylabel='sd. of $Z_q$', xscale='log')
 
 def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_boundary=None, past_boundary=None, w_traj=None, mseed=10):
     if tf.is_tensor(r_traj):
@@ -280,6 +365,7 @@ def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_bounda
             w_traj = np.ones_like(r_traj)
         else:
             w_traj = np.random.poisson(lam=1, size=len(r_traj))
+            w_traj = np.array(w_traj,dtype=r_traj.dtype)
         lx, lz = cut_profiles.comp_zq(r_traj, b_traj, i_traj, future_boundary, past_boundary, w_traj=w_traj, dt=tf.constant(dt))
         lz = lz[:-1].numpy()
         lx = lx[:-1].numpy()
@@ -287,5 +373,5 @@ def plot_bootstrap_zq_dt(ax, dt, r_traj, b_traj=None, i_traj=None, future_bounda
             ax.plot(lx,lz,'r-')
         else:
             ax.plot(lx,lz,'b:')
-            
+ 
     ax.set(title='Bootstrap analysis of $Z_q$', xlabel='q', ylabel='$Z_q$')

@@ -1,5 +1,14 @@
 tests/__pycache__/test_boundaries.cpython-39.pyc
 tests/__pycache__/test_committor.cpython-39.pyc
+.vscode/settings.json
+optimalrcs/__pycache__/__init__.cpython-39.pyc
+optimalrcs/__pycache__/boundaries.cpython-39.pyc
+optimalrcs/__pycache__/cut_profiles.cpython-39.pyc
+optimalrcs/__pycache__/metrics.cpython-39.pyc
+optimalrcs/__pycache__/nonparametrics.cpython-39.pyc
+optimalrcs/__pycache__/optimalrcs.cpython-39.pyc
+optimalrcs/__pycache__/plots.cpython-39.pyc
+tests/__pycache__/test_boundaries.cpython-39.pyc
 tests/__pycache__/test_committorne.cpython-39.pyc
 tests/__pycache__/test_cut_profiles.cpython-39.pyc
 tests/__pycache__/test_metrics.cpython-39.pyc
@@ -7,3 +16,6 @@ tests/__pycache__/test_mfptne.cpython-39.pyc
 tests/__pycache__/test_plots.cpython-39.pyc
 optimalrcs/__pycache__/__init__.cpython-39.pyc
 .vscode/settings.json
+.gitignore
+tests/__pycache__/test_committor.cpython-39.pyc
+
