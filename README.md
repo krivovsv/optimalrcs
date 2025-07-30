@@ -63,10 +63,9 @@ mfpt.plots_obs_pred()
 
 This project is licensed under the MIT License. See the LICENSE file for details.
 
-## Citation
+## Reference
 
+The methodology implemented in this library is described in the following paper:
 
-If you use this library in your research, please cite the following manuscript:
-
-> Banushkina, P. V., & Krivov, S. V. (2025). *Nonparametric Reaction Coordinate Optimization with Histories: A Framework for
+Banushkina, P. V., & Krivov, S. V. (2025). *Nonparametric Reaction Coordinate Optimization with Histories: A Framework for
 Rare Event Dynamics*. arXiv:XXXX.XXXXX
