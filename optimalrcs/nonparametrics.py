@@ -105,41 +105,6 @@ def npt(r_traj, fk, i_traj=None, w_traj=None):
     rn_traj = r_traj + tf.tensordot(al_j, fk, 1)
     return rn_traj
 
-
-@tf.function
-def npneq(r_traj, fk, i_traj=None, gamma=0, stable=False):
-    """ implements NPNEq (non-parametric non-equilibrium committor
-    optimization) iteration.
-
-    r is the putative RC time-series
-    fk are the basis functions of the variation delta r
-    Ib is the boundary indicator function:
-        Ib(i)=1 when X(i) belongs to the boundary states and 0 otherwise
-    It is the trajectory indicator function:
-        It(i)=1 if X(i) and X(i+1) belong to the same short trajectory
-    """
-    if i_traj is None:
-        itw = tf.ones_like(r_traj[:-1])
-    else:
-        itw = tf.cast(i_traj[1:] == i_traj[:-1], dtype=r_traj.dtype)
-
-    if stable:
-        akj = -tf.tensordot(fk[:, :-1], fk[:, :-1] * itw, axes=[1, 1])
-    else:
-        delta_fj = fk[:, 1:] - fk[:, :-1] * (1 + gamma)
-        akj = tf.tensordot(fk[:, :-1], delta_fj * itw, axes=[1, 1])
-
-    delta_r = r_traj[1:] - r_traj[:-1]
-    b = tf.tensordot(fk[:, :-1], -delta_r * itw, 1)
-    b = tf.reshape(b, [b.shape[0], 1])
-
-    al_j = tf.linalg.lstsq(akj, b, fast=False)
-    al_j = tf.reshape(al_j, [al_j.shape[0]])
-
-    rn_traj = r_traj + tf.tensordot(al_j, fk, 1)
-    rn_traj = tf.clip_by_value(rn_traj, 0, 1)
-    return rn_traj
-
 @tf.function
 def npneq(r_traj, fk, i_traj=None, gamma=0, stable=False, train_mask=None):
     """ implements NPNEq (non-parametric non-equilibrium committor
@@ -163,8 +128,8 @@ def npneq(r_traj, fk, i_traj=None, gamma=0, stable=False, train_mask=None):
     if stable:
         akj = -tf.tensordot(fk[:, :-1], fk[:, :-1] * itw, axes=[1, 1])
     else:
-        delta_fj = fk[:, 1:] - fk[:, :-1] * (1 + gamma)
-        akj = tf.tensordot(fk[:, :-1], delta_fj * itw, axes=[1, 1])
+        delta_fj = fk[:, 1:] * itw - fk[:, :-1] * (itw + gamma)
+        akj = tf.tensordot(fk[:, :-1], delta_fj, axes=[1, 1])
 
     delta_r = r_traj[1:] - r_traj[:-1]
     b = tf.tensordot(fk[:, :-1], -delta_r * itw, 1)
@@ -193,8 +158,8 @@ def npneq_dt(r_traj, fk, i_traj, future_boundary, gamma=0, dt=1):
     not_crossed = tf.cast(tf.logical_or(future_boundary.index[:-dt] == - 1,
                                         future_boundary.delta_t[:-dt] > delta_t_prec), dtype=r_traj.dtype)
 
-    delta_fj = fk[:, dt:] * not_crossed - fk[:, :-dt] * (1 + gamma)
-    akj = tf.tensordot(fk[:, :-dt], delta_fj * it, axes=[1, 1])
+    delta_fj = fk[:, dt:] * not_crossed * it - fk[:, :-dt] * (it + gamma)
+    akj = tf.tensordot(fk[:, :-dt], delta_fj , axes=[1, 1])
 
     r_plus = tf.where(tf.logical_and(future_boundary.index[:-dt] > - 1, future_boundary.delta_t[:-dt] <= delta_t_prec),
                       future_boundary.r[:-dt], r_traj[dt:])
@@ -256,10 +221,10 @@ def npnet(r_traj, fk, t_traj, i_traj, gamma=0, tmax=1e10):
     else:
         itw = tf.cast(i_traj[1:] == i_traj[:-1], dtype=r_traj.dtype)
 
-    dfj = fk[:, 1:] - fk[:,:-1] * (1+gamma)
+    dfj = fk[:, 1:] * itw - fk[:,:-1] * (itw + gamma)
     
 
-    akj = tf.tensordot(fk[:, :-1], dfj * itw, axes=[1, 1])
+    akj = tf.tensordot(fk[:, :-1], dfj, axes=[1, 1])
 
     delta_r = r_traj[1:] - r_traj[:-1] + t_traj[1:] - t_traj[:-1]
 

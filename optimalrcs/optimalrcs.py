@@ -317,7 +317,7 @@ class CommittorNE:
         save_min_delta_zq : bool, optional
             If True, save the RC with the smallest observed Z_q deviation (default: True).
         train_mask : array_like, optional
-            Boolean mask indicating which frames to include in training (not implemented).
+            Boolean mask indicating which frames to include in training.
         delta2_r2_max_change_allowed : float, optional
             Maximum allowed change in delta_r^2 for accepting RC updates (default: 1e3).
 
@@ -373,7 +373,12 @@ class CommittorNE:
                 _gamma = tf.constant(gamma(self.iteration, max_iter), dtype=self.prec)
 
             # compute next update of the RC
-            r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma)
+            if train_mask is None:
+                r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma)
+            else:
+                _train_mask = tf.cast(tf.random.uniform(shape=[self.r_traj.shape[0] - 1]) < train_mask,dtype=self.r_traj.dtype)
+                r_traj = nonparametrics.npneq(self.r_traj, fk, self.i_traj, _gamma, train_mask=_train_mask)
+
             delta_r2_new = metrics._delta_r2_ne_dt1(r_traj, self.i_traj)
             if delta_r2_new-delta_r2<delta2_r2_max_change_allowed:
                 self.r_traj=r_traj
