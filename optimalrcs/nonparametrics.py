@@ -207,7 +207,7 @@ def npnew(r, fk, it):
     return rn
 
 @tf.function
-def npnet(r_traj, fk, t_traj, i_traj, gamma=0, tmax=1e10):
+def npnet(r_traj, fk, t_traj, i_traj, gamma=0, tmax=1e10, train_mask=None):
     """ implements NPNEt (non-parametric non-equilibrium mfpt
     optimization) iteration.
     
@@ -220,10 +220,12 @@ def npnet(r_traj, fk, t_traj, i_traj, gamma=0, tmax=1e10):
         itw = tf.ones_like(r_traj[:-1])
     else:
         itw = tf.cast(i_traj[1:] == i_traj[:-1], dtype=r_traj.dtype)
+        
+    if train_mask is not None:
+        itw = itw * train_mask
 
     dfj = fk[:, 1:] * itw - fk[:,:-1] * (itw + gamma)
     
-
     akj = tf.tensordot(fk[:, :-1], dfj, axes=[1, 1])
 
     delta_r = r_traj[1:] - r_traj[:-1] + t_traj[1:] - t_traj[:-1]

@@ -758,7 +758,7 @@ class MFPTNE(CommittorNE):
         save_min_delta_zt : bool, optional
             If True, save the RC with the smallest observed Z_tau deviation (default: True).
         train_mask : array_like, optional
-            Boolean mask indicating which frames to include in training. not implemented!
+            Boolean mask indicating which frames to include in training.
 
         Returns
         -------
@@ -848,7 +848,7 @@ class MFPTNE(CommittorNE):
         reweight : bool, optional
             If True, apply equilibrium reweighting using `self.w_traj`.
         xlabel : str, optional
-            Label for the x-axis in all plots (default: '$\\\\tau$').
+            Label for the x-axis in all plots (default: '$\\tau$').
         force0 : bool, optional
             If True, force Z_tau to be zero at the start (default: False).
 

@@ -68,4 +68,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 The methodology implemented in this library is described in the following paper:
 
 Banushkina, P. V., & Krivov, S. V. (2025). *Nonparametric Reaction Coordinate Optimization with Histories: A Framework for
-Rare Event Dynamics*. arXiv:XXXX.XXXXX
+Rare Event Dynamics*. arxiv.org/abs/2508.07326
