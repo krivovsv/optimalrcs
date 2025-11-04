@@ -178,8 +178,8 @@ class CommittorNE:
             self.r_traj = np.asarray(seed_r, prec)
         else:
             self.r_traj = np.ones_like(self.boundary0, prec) / 2
-            self.r_traj[self.boundary0] = 0
-            self.r_traj[self.boundary1] = 1
+        self.r_traj[self.boundary0] = 0
+        self.r_traj[self.boundary1] = 1
         self.prec = prec
         self.len = len(self.boundary0)
         self.future_boundary = boundaries.FutureBoundary(self.r_traj, self.b_traj, self.t_traj, self.i_traj)
